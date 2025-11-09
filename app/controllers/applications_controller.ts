@@ -1,10 +1,11 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { ApplyToPropertyValidator } from '#validators/applications'
+import { ApplyToPropertyValidator } from '#validators/application'
 import Property from '#models/property'
 import Application, { ApplicationStatus } from '#models/application'
 import Contract from '#models/contract'
 import { DateTime } from 'luxon'
 import NotificationsService from '#services/notifications_service'
+
 
 export default class ApplicationsController {
   /**
