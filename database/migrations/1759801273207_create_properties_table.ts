@@ -35,8 +35,8 @@ export default class extends BaseSchema {
       table.string('main_photo_url').nullable()
 
       // Dates automatiques
-      table.timestamp('created_at', { useTz: true })
-      table.timestamp('updated_at', { useTz: true })
+      table.timestamp('created_at', { useTz: true }).nullable()
+      table.timestamp('updated_at', { useTz: true }).nullable()
     })
   }
 

@@ -23,8 +23,8 @@ export default class extends BaseSchema {
 
       table.primary(['user_id', 'role_id'])
 
-      table.timestamp('created_at')
-      table.timestamp('updated_at')
+      table.timestamp('created_at').nullable()
+      table.timestamp('updated_at').nullable()
     })
   }
 
