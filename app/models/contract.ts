@@ -4,6 +4,7 @@ import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import Property from '#models/property'
 import User from '#models/user'
 import Payment from './payment.js'
+import Invoice from './invoice.js'
 
 export enum Currencies {
   USD = 'USD',
@@ -73,4 +74,7 @@ export default class Contract extends BaseModel {
 
   @hasMany(() => Payment)
   declare payments: HasMany<typeof Payment>
+
+  @hasMany(() => Invoice)
+  declare invoices: HasMany<typeof Invoice>
 }
