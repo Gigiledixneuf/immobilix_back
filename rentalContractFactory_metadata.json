@@ -1,0 +1,331 @@
+{
+  "compiler": {
+    "version": "0.8.30+commit.73712a01"
+  },
+  "language": "Solidity",
+  "output": {
+    "abi": [
+      {
+        "inputs": [],
+        "stateMutability": "nonpayable",
+        "type": "constructor"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "dbContractId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint64",
+            "name": "newEndDate",
+            "type": "uint64"
+          }
+        ],
+        "name": "EndDateUpdated",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "dbContractId",
+            "type": "uint256"
+          },
+          {
+            "indexed": true,
+            "internalType": "address",
+            "name": "creator",
+            "type": "address"
+          }
+        ],
+        "name": "LeaseCreated",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "dbContractId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "paymentId",
+            "type": "uint256"
+          },
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          }
+        ],
+        "name": "PaymentMade",
+        "type": "event"
+      },
+      {
+        "anonymous": false,
+        "inputs": [
+          {
+            "indexed": false,
+            "internalType": "uint256",
+            "name": "dbContractId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "newStatus",
+            "type": "string"
+          }
+        ],
+        "name": "StatusUpdated",
+        "type": "event"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "",
+            "type": "uint256"
+          }
+        ],
+        "name": "contracts",
+        "outputs": [
+          {
+            "internalType": "uint256",
+            "name": "dbContractId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "landlordId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "tenantId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "rentAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "currency",
+            "type": "string"
+          },
+          {
+            "internalType": "uint64",
+            "name": "endDate",
+            "type": "uint64"
+          },
+          {
+            "internalType": "string",
+            "name": "currentStatus",
+            "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "depositMonths",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "depositAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "depositStatus",
+            "type": "string"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "_dbContractId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "_landlordId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "_tenantId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint64",
+            "name": "_endDate",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "_rentAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "_currency",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "_status",
+            "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "_depositMonths",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "_depositAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "_depositStatus",
+            "type": "string"
+          }
+        ],
+        "name": "createNewLease",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "_dbContractId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "_paymentId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "_amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "_paymentMethod",
+            "type": "string"
+          }
+        ],
+        "name": "makePayment",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [],
+        "name": "owner",
+        "outputs": [
+          {
+            "internalType": "address",
+            "name": "",
+            "type": "address"
+          }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "_dbContractId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint64",
+            "name": "_newEndDate",
+            "type": "uint64"
+          }
+        ],
+        "name": "updateEndDate",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      },
+      {
+        "inputs": [
+          {
+            "internalType": "uint256",
+            "name": "_dbContractId",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string",
+            "name": "_newStatus",
+            "type": "string"
+          }
+        ],
+        "name": "updateStatus",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      }
+    ],
+    "devdoc": {
+      "kind": "dev",
+      "methods": {},
+      "version": 1
+    },
+    "userdoc": {
+      "kind": "user",
+      "methods": {},
+      "version": 1
+    }
+  },
+  "settings": {
+    "compilationTarget": {
+      "rentalContractFactory.sol": "RentalContractFactory"
+    },
+    "evmVersion": "prague",
+    "libraries": {},
+    "metadata": {
+      "bytecodeHash": "ipfs"
+    },
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "remappings": []
+  },
+  "sources": {
+    "rentalContractFactory.sol": {
+      "keccak256": "0xa4fbdaec7f169afc1c4b7b04aeaff0a4ad40c803968762c90fb1fcb135e79d88",
+      "license": "MIT",
+      "urls": [
+        "bzz-raw://ca828353e4a8b90be92a94d6bff75cf8d1acae9ae0a80eba11911ebf407703fe",
+        "dweb:/ipfs/QmYRvgq2qnfqU8QTAk9f1iKh4U6qBBwQJXRPKGBnUahSLb"
+      ]
+    }
+  },
+  "version": 1
+}

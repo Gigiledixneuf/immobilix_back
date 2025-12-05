@@ -1,0 +1,24 @@
+{
+  "language": "Solidity",
+  "sources": {
+    "rentalContractFactory.sol": {
+      "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\ncontract RentalContractFactory {\n  struct Payment {\n    uint256 paymentId;\n    uint256 amount;\n    uint64 paymentDate;\n    string paymentMethod;\n  }\n\n  struct RentalContract {\n    uint256 dbContractId;\n    uint256 landlordId;\n    uint256 tenantId;\n    uint256 rentAmount;\n    string currency;\n    uint64 endDate;\n    string currentStatus;\n    uint256 depositMonths;\n    uint256 depositAmount;\n    string depositStatus;\n    Payment[] payments;\n  }\n\n  mapping(uint256 => RentalContract) public contracts;\n  address public immutable owner;\n\n  event LeaseCreated(uint256 dbContractId, address indexed creator);\n  event StatusUpdated(uint256 dbContractId, string newStatus);\n  event EndDateUpdated(uint256 dbContractId, uint64 newEndDate);\n  event PaymentMade(uint256 dbContractId, uint256 paymentId, uint256 amount);\n\n  constructor() {\n    owner = msg.sender;\n  }\n\n  function createNewLease(\n    uint256 _dbContractId,\n    uint256 _landlordId,\n    uint256 _tenantId,\n    uint64 _endDate,\n    uint256 _rentAmount,\n    string memory _currency,\n    string memory _status,\n    uint256 _depositMonths,\n    uint256 _depositAmount,\n    string memory _depositStatus\n  ) public {\n    require(msg.sender == owner, \"Seul le proprietaire du contrat peut creer\");\n    require(contracts[_dbContractId].dbContractId == 0, \"Contrat deja existant\");\n\n    RentalContract storage newContract = contracts[_dbContractId];\n    newContract.dbContractId = _dbContractId;\n    newContract.landlordId = _landlordId;\n    newContract.tenantId = _tenantId;\n    newContract.endDate = _endDate;\n    newContract.rentAmount = _rentAmount;\n    newContract.currency = _currency;\n    newContract.currentStatus = _status;\n    newContract.depositMonths = _depositMonths;\n    newContract.depositAmount = _depositAmount;\n    newContract.depositStatus = _depositStatus;\n\n    emit LeaseCreated(_dbContractId, msg.sender);\n  }\n\n  function makePayment(\n    uint256 _dbContractId,\n    uint256 _paymentId,\n    uint256 _amount,\n    string memory _paymentMethod\n  ) public {\n    require(msg.sender == owner, \"Seul le proprietaire du contrat peut effectuer un paiement\");\n    require(contracts[_dbContractId].dbContractId != 0, \"Contrat introuvable\");\n\n    contracts[_dbContractId].payments.push(\n      Payment({\n        paymentId: _paymentId,\n        amount: _amount,\n        paymentDate: uint64(block.timestamp),\n        paymentMethod: _paymentMethod\n      })\n    );\n\n    emit PaymentMade(_dbContractId, _paymentId, _amount);\n  }\n\n  function updateEndDate(uint256 _dbContractId, uint64 _newEndDate) public {\n    require(msg.sender == owner, \"Seul le proprietaire du contrat peut modifier\");\n    require(contracts[_dbContractId].dbContractId != 0, \"Contrat introuvable\");\n\n    contracts[_dbContractId].endDate = _newEndDate;\n    emit EndDateUpdated(_dbContractId, _newEndDate);\n  }\n\n  function updateStatus(uint256 _dbContractId, string memory _newStatus) public {\n    require(msg.sender == owner, \"Seul le proprietaire du contrat peut modifier\");\n    require(contracts[_dbContractId].dbContractId != 0, \"Contrat introuvable\");\n\n    contracts[_dbContractId].currentStatus = _newStatus;\n    emit StatusUpdated(_dbContractId, _newStatus);\n  }\n}"
+    }
+  },
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "outputSelection": {
+      "*": {
+        "*": [
+          "abi",
+          "evm.bytecode.object",
+          "evm.deployedBytecode.object",
+          "metadata"
+        ]
+      }
+    }
+  }
+}
