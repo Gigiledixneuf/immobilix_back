@@ -6,7 +6,6 @@ import Contract from '#models/contract'
 import { DateTime } from 'luxon'
 import NotificationsService from '#services/notifications_service'
 
-
 export default class ApplicationsController {
   /**
    * GET /api/properties/:id/applications
@@ -134,10 +133,16 @@ export default class ApplicationsController {
 
     // Notification au bailleur propriétaire
     const notifier = new NotificationsService()
-    await notifier.notifyUser(property.user_id, 'Nouvelle candidature', `Un locataire a postulé pour votre logement #${propertyId}`, {
-      propertyId,
-      applicationId: appRow.id,
-    })
+    await notifier.notifyUser(
+      property.user_id,
+      'Nouvelle candidature',
+      `Un locataire a postulé pour votre logement #${propertyId}`,
+      'application',
+      {
+        propertyId,
+        applicationId: appRow.id,
+      }
+    )
 
     return response.created({ message: 'Candidature enregistrée', data: appRow })
   }
