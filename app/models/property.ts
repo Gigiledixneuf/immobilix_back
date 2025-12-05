@@ -3,6 +3,7 @@ import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import User from '#models/user'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import Contract from '#models/contract'
+import Review from '#models/review'
 
 export enum PropertyType {
   HOUSE = 'house',
@@ -61,4 +62,7 @@ export default class Property extends BaseModel {
 
   @hasMany(() => Contract)
   declare contracts: HasMany<typeof Contract>
+
+  @hasMany(() => Review)
+  declare reviews: HasMany<typeof Review>
 }
