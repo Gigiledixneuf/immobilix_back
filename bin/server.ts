@@ -29,7 +29,7 @@ const IMPORTER = (filePath: string) => {
   return import(filePath)
 }
 
-new Ignitor(APP_ROOT, { importer: IMPORTER })
+const ignitor = new Ignitor(APP_ROOT, { importer: IMPORTER })
   .tap((app) => {
     app.booting(async () => {
       await import('#start/env')
@@ -37,16 +37,18 @@ new Ignitor(APP_ROOT, { importer: IMPORTER })
     app.listen('SIGTERM', () => app.terminate())
     app.listenIf(app.managedByPm2, 'SIGINT', () => app.terminate())
   })
+
+ignitor
   .httpServer()
   .start()
   .then(async (httpServer) => {
     // Initialiser WebSocket après le démarrage du serveur HTTP
     try {
       const { getWebSocketService } = await import('#services/websocket_service')
+      const logger = (await import('@adonisjs/core/services/logger')).default
+      
       const websocketService = getWebSocketService()
       websocketService.initialize(httpServer)
-      
-      const logger = (await import('@adonisjs/core/services/logger')).default
       logger.info('✅ WebSocket service initialized successfully')
     } catch (error) {
       console.error('❌ Failed to initialize WebSocket service:', error)
