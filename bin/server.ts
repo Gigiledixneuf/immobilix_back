@@ -42,41 +42,15 @@ ignitor
   .httpServer()
   .start()
   .then(async () => {
-    // Initialiser WebSocket après le démarrage du serveur HTTP
-    // Attendre un peu pour s'assurer que le serveur est prêt
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    
+    // Initialiser WebSocket avec noServer: true
+    // Les upgrades seront gérés par le middleware websocket_middleware
     try {
-      // Accéder au serveur HTTP via le service server d'AdonisJS
-      const server = await import('@adonisjs/core/services/server')
-      const serverService = server.default
-      
-      // Vérifier si getHttpServer existe
-      let httpServer: any = null
-      
-      if (typeof serverService.getHttpServer === 'function') {
-        httpServer = serverService.getHttpServer()
-      } else if (serverService.instance) {
-        httpServer = serverService.instance
-      } else if (serverService.server) {
-        httpServer = serverService.server
-      } else {
-        // Essayer d'accéder directement à la propriété
-        httpServer = (serverService as any).getHttpServer?.() || (serverService as any).instance
-      }
-      
-      if (!httpServer) {
-        console.error('❌ HTTP server not available for WebSocket initialization')
-        console.error('   Server service:', Object.keys(serverService))
-        return
-      }
-
       const { getWebSocketService } = await import('#services/websocket_service')
       const logger = (await import('@adonisjs/core/services/logger')).default
       
       const websocketService = getWebSocketService()
-      websocketService.initialize(httpServer)
-      logger.info('✅ WebSocket service initialized successfully')
+      websocketService.initialize()
+      logger.info('✅ WebSocket service initialized successfully (noServer mode)')
     } catch (error) {
       console.error('❌ Failed to initialize WebSocket service:', error)
       console.error('   Error details:', error instanceof Error ? error.stack : error)

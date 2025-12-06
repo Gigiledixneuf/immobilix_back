@@ -1,102 +1,141 @@
 import { WebSocketServer, WebSocket } from 'ws'
-import type { Server as HTTPServer } from 'node:http'
+import type { IncomingMessage } from 'node:http'
 import { URL } from 'node:url'
 import logger from '@adonisjs/core/services/logger'
 import User from '#models/user'
 import Notification from '#models/notification'
-import { DbAccessTokensProvider } from '@adonisjs/auth/access_tokens'
 
 /**
  * Service WebSocket natif pour les notifications temps réel
  * Compatible avec web_socket_channel (Flutter)
+ * Utilise noServer: true pour gérer les upgrades manuellement
  */
 export default class WebSocketService {
   private wss: WebSocketServer | null = null
   private connectedUsers: Map<number, Set<WebSocket>> = new Map() // userId -> Set of WebSockets
 
   /**
-   * Initialise le serveur WebSocket natif
+   * Initialise le serveur WebSocket avec noServer: true
    */
-  initialize(httpServer: HTTPServer) {
+  initialize() {
     this.wss = new WebSocketServer({
-      server: httpServer,
+      noServer: true,
       path: '/notifications',
     })
 
-    this.wss.on('connection', async (ws: WebSocket, req) => {
-      try {
-        // Extraire le token de l'URL
-        const url = new URL(req.url || '', `http://${req.headers.host}`)
-        const token = url.searchParams.get('token')
+    logger.info('WebSocket service initialized (noServer mode)')
+  }
 
-        if (!token) {
-          logger.warn('WebSocket connection rejected: no token')
-          ws.close(1008, 'Token manquant')
-          return
-        }
+  /**
+   * Gère l'upgrade HTTP vers WebSocket
+   * À appeler depuis un middleware ou un gestionnaire de route
+   */
+  async handleUpgrade(
+    request: IncomingMessage,
+    socket: any,
+    head: Buffer
+  ): Promise<boolean> {
+    if (!this.wss) {
+      logger.warn('WebSocket service not initialized')
+      return false
+    }
 
-        // Vérifier le token et récupérer l'utilisateur
-        const user = await this.authenticateToken(token)
-
-        if (!user) {
-          logger.warn('WebSocket connection rejected: invalid token')
-          ws.close(1008, 'Authentification échouée')
-          return
-        }
-
-        const userId = user.id
-        logger.info(`WebSocket: User ${userId} connected`)
-
-        // Ajouter l'utilisateur aux utilisateurs connectés
-        if (!this.connectedUsers.has(userId)) {
-          this.connectedUsers.set(userId, new Set())
-        }
-        this.connectedUsers.get(userId)!.add(ws)
-
-        // Envoyer un message de bienvenue
-        ws.send(
-          JSON.stringify({
-            type: 'connected',
-            message: 'Connexion WebSocket établie',
-          })
-        )
-
-        // Gestion des messages entrants (ping/pong)
-        ws.on('message', async (data) => {
-          try {
-            const message = JSON.parse(data.toString())
-            if (message.type === 'ping') {
-              ws.send(JSON.stringify({ type: 'pong' }))
-            }
-          } catch (error) {
-            // Ignorer les erreurs de parsing
-          }
-        })
-
-        // Gestion de la déconnexion
-        ws.on('close', () => {
-          logger.info(`WebSocket: User ${userId} disconnected`)
-
-          const userSockets = this.connectedUsers.get(userId)
-          if (userSockets) {
-            userSockets.delete(ws)
-            if (userSockets.size === 0) {
-              this.connectedUsers.delete(userId)
-            }
-          }
-        })
-
-        // Gestion des erreurs
-        ws.on('error', (error) => {
-          logger.error(`WebSocket error for user ${userId}:`, error)
-        })
-      } catch (error) {
-        logger.error('Error in WebSocket connection:', error)
-        ws.close(1011, 'Erreur serveur')
+    try {
+      // Extraire le token de l'URL
+      const url = new URL(request.url || '', `http://${request.headers.host}`)
+      
+      // Vérifier que c'est le bon chemin
+      if (!url.pathname.includes('/notifications')) {
+        return false
       }
-    })
 
-    logger.info('WebSocket service initialized on path /notifications')
+      const token = url.searchParams.get('token')
+
+      if (!token) {
+        logger.warn('WebSocket connection rejected: no token')
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+        socket.destroy()
+        return false
+      }
+
+      // Vérifier le token et récupérer l'utilisateur
+      const user = await this.authenticateToken(token)
+
+      if (!user) {
+        logger.warn('WebSocket connection rejected: invalid token')
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
+        socket.destroy()
+        return false
+      }
+
+      // Accepter l'upgrade WebSocket
+      this.wss.handleUpgrade(request, socket, head, (ws: WebSocket) => {
+        this.handleConnection(ws, request, user.id)
+      })
+
+      return true
+    } catch (error) {
+      logger.error('Error in WebSocket upgrade:', error)
+      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n')
+      socket.destroy()
+      return false
+    }
+  }
+
+  /**
+   * Gère une nouvelle connexion WebSocket
+   */
+  private handleConnection(ws: WebSocket, req: IncomingMessage, userId: number) {
+    try {
+      logger.info(`WebSocket: User ${userId} connected`)
+
+      // Ajouter l'utilisateur aux utilisateurs connectés
+      if (!this.connectedUsers.has(userId)) {
+        this.connectedUsers.set(userId, new Set())
+      }
+      this.connectedUsers.get(userId)!.add(ws)
+
+      // Envoyer un message de bienvenue
+      ws.send(
+        JSON.stringify({
+          type: 'connected',
+          message: 'Connexion WebSocket établie',
+        })
+      )
+
+      // Gestion des messages entrants (ping/pong)
+      ws.on('message', async (data) => {
+        try {
+          const message = JSON.parse(data.toString())
+          if (message.type === 'ping') {
+            ws.send(JSON.stringify({ type: 'pong' }))
+          }
+        } catch (error) {
+          // Ignorer les erreurs de parsing
+        }
+      })
+
+      // Gestion de la déconnexion
+      ws.on('close', () => {
+        logger.info(`WebSocket: User ${userId} disconnected`)
+
+        const userSockets = this.connectedUsers.get(userId)
+        if (userSockets) {
+          userSockets.delete(ws)
+          if (userSockets.size === 0) {
+            this.connectedUsers.delete(userId)
+          }
+        }
+      })
+
+      // Gestion des erreurs
+      ws.on('error', (error) => {
+        logger.error(`WebSocket error for user ${userId}:`, error)
+      })
+    } catch (error) {
+      logger.error('Error in WebSocket connection:', error)
+      ws.close(1011, 'Erreur serveur')
+    }
   }
 
   /**
