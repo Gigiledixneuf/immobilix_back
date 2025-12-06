@@ -9,8 +9,8 @@ export default class extends BaseSchema {
       table.string('name', 191).notNullable().unique()
       table.string('description').nullable()
 
-      table.timestamp('created_at')
-      table.timestamp('updated_at')
+      table.timestamp('created_at').nullable()
+      table.timestamp('updated_at').nullable()
     })
   }
 

@@ -413,7 +413,7 @@ export default class ContractsController {
           newStatus: payload.status || contract.status,
         }
 
-        await this.hederaService.updateContractOnChain(contract.hederaContractId, updatesForHedera)
+        await this.hederaService.updateContractOnChain(updatesForHedera)
       } catch (error) {
         console.log('Erreur lors de la mise à jour du contrat Hedera', error)
       }
@@ -460,8 +460,15 @@ export default class ContractsController {
       })
     }
 
-    // NOTE: Idéalement, si le contrat a un ID Hedera, il faudrait appeler une fonction
-    // 'terminateLease' sur le Master Contract ici.
+    // Résilier le contrat sur la chaîne Hedera si présent
+    if (contract.hederaContractId) {
+      try {
+        await this.hederaService.terminateLease(contract.id)
+      } catch (error) {
+        console.error('Erreur lors de la résiliation du contrat Hedera:', error)
+        // On continue quand même avec la suppression en DB
+      }
+    }
 
     await contract.delete()
 
