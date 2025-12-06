@@ -39,6 +39,19 @@ new Ignitor(APP_ROOT, { importer: IMPORTER })
   })
   .httpServer()
   .start()
+  .then(async (httpServer) => {
+    // Initialiser WebSocket après le démarrage du serveur HTTP
+    try {
+      const { getWebSocketService } = await import('#services/websocket_service')
+      const websocketService = getWebSocketService()
+      websocketService.initialize(httpServer)
+      
+      const logger = (await import('@adonisjs/core/services/logger')).default
+      logger.info('✅ WebSocket service initialized successfully')
+    } catch (error) {
+      console.error('❌ Failed to initialize WebSocket service:', error)
+    }
+  })
   .catch((error) => {
     process.exitCode = 1
     prettyPrintError(error)
