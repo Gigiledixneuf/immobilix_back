@@ -1,4 +1,5 @@
 import Notification from '#models/notification'
+import { getWebSocketService } from './websocket_service'
 
 export default class NotificationsService {
   /**
@@ -21,7 +22,15 @@ export default class NotificationsService {
       data: data || null,
     })
 
-    // TODO: Envoyer via WebSocket en temps réel
+    // Envoyer via WebSocket en temps réel
+    try {
+      const websocketService = getWebSocketService()
+      await websocketService.sendToUser(userId, notification)
+    } catch (error) {
+      // Ne pas bloquer si WebSocket échoue (l'utilisateur récupérera la notification à la prochaine connexion)
+      console.error('Error sending notification via WebSocket:', error)
+    }
+
     // TODO: Brancher FCM pour les push notifications
 
     return notification

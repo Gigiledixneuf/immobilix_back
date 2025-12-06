@@ -1,99 +1,160 @@
-import { Server as SocketIOServer } from 'socket.io'
+import { WebSocketServer, WebSocket } from 'ws'
 import type { Server as HTTPServer } from 'node:http'
+import { URL } from 'node:url'
 import logger from '@adonisjs/core/services/logger'
 import User from '#models/user'
+import Notification from '#models/notification'
+import { DbAccessTokensProvider } from '@adonisjs/auth/access_tokens'
 
 /**
- * Service WebSocket pour les notifications temps réel
+ * Service WebSocket natif pour les notifications temps réel
+ * Compatible avec web_socket_channel (Flutter)
  */
 export default class WebSocketService {
-  private io: SocketIOServer | null = null
-  private connectedUsers: Map<number, Set<string>> = new Map() // userId -> Set of socketIds
+  private wss: WebSocketServer | null = null
+  private connectedUsers: Map<number, Set<WebSocket>> = new Map() // userId -> Set of WebSockets
 
   /**
-   * Initialise le serveur WebSocket avec Socket.IO
+   * Initialise le serveur WebSocket natif
    */
   initialize(httpServer: HTTPServer) {
-    this.io = new SocketIOServer(httpServer, {
-      cors: {
-        origin: '*', // En production, spécifier les origines autorisées
-        methods: ['GET', 'POST'],
-      },
-      path: '/socket.io',
+    this.wss = new WebSocketServer({
+      server: httpServer,
+      path: '/notifications',
     })
 
-    this.io.use(async (socket, next) => {
+    this.wss.on('connection', async (ws: WebSocket, req) => {
       try {
-        const token = socket.handshake.auth.token || socket.handshake.query.token
-        
-        if (!token || typeof token !== 'string') {
-          return next(new Error('Token manquant'))
+        // Extraire le token de l'URL
+        const url = new URL(req.url || '', `http://${req.headers.host}`)
+        const token = url.searchParams.get('token')
+
+        if (!token) {
+          logger.warn('WebSocket connection rejected: no token')
+          ws.close(1008, 'Token manquant')
+          return
         }
 
-        // Vérifier et récupérer l'utilisateur depuis le token
-        const user = await User.findByOrFail('id', 1) // TODO: Vérifier le token réellement
-        
-        // Stocker l'utilisateur dans la socket pour utilisation ultérieure
-        socket.data.userId = user.id
-        next()
-      } catch (error) {
-        logger.error('WebSocket authentication error:', error)
-        next(new Error('Authentification échouée'))
-      }
-    })
+        // Vérifier le token et récupérer l'utilisateur
+        const user = await this.authenticateToken(token)
 
-    this.io.on('connection', (socket) => {
-      const userId = socket.data.userId
+        if (!user) {
+          logger.warn('WebSocket connection rejected: invalid token')
+          ws.close(1008, 'Authentification échouée')
+          return
+        }
 
-      if (!userId) {
-        socket.disconnect()
-        return
-      }
+        const userId = user.id
+        logger.info(`WebSocket: User ${userId} connected`)
 
-      logger.info(`WebSocket: User ${userId} connected (socket: ${socket.id})`)
+        // Ajouter l'utilisateur aux utilisateurs connectés
+        if (!this.connectedUsers.has(userId)) {
+          this.connectedUsers.set(userId, new Set())
+        }
+        this.connectedUsers.get(userId)!.add(ws)
 
-      // Ajouter l'utilisateur aux utilisateurs connectés
-      if (!this.connectedUsers.has(userId)) {
-        this.connectedUsers.set(userId, new Set())
-      }
-      this.connectedUsers.get(userId)!.add(socket.id)
+        // Envoyer un message de bienvenue
+        ws.send(
+          JSON.stringify({
+            type: 'connected',
+            message: 'Connexion WebSocket établie',
+          })
+        )
 
-      // Rejoindre le channel privé de l'utilisateur
-      socket.join(`user:${userId}`)
-
-      // Gestion de la déconnexion
-      socket.on('disconnect', () => {
-        logger.info(`WebSocket: User ${userId} disconnected (socket: ${socket.id})`)
-        
-        const userSockets = this.connectedUsers.get(userId)
-        if (userSockets) {
-          userSockets.delete(socket.id)
-          if (userSockets.size === 0) {
-            this.connectedUsers.delete(userId)
+        // Gestion des messages entrants (ping/pong)
+        ws.on('message', async (data) => {
+          try {
+            const message = JSON.parse(data.toString())
+            if (message.type === 'ping') {
+              ws.send(JSON.stringify({ type: 'pong' }))
+            }
+          } catch (error) {
+            // Ignorer les erreurs de parsing
           }
-        }
-      })
+        })
+
+        // Gestion de la déconnexion
+        ws.on('close', () => {
+          logger.info(`WebSocket: User ${userId} disconnected`)
+
+          const userSockets = this.connectedUsers.get(userId)
+          if (userSockets) {
+            userSockets.delete(ws)
+            if (userSockets.size === 0) {
+              this.connectedUsers.delete(userId)
+            }
+          }
+        })
+
+        // Gestion des erreurs
+        ws.on('error', (error) => {
+          logger.error(`WebSocket error for user ${userId}:`, error)
+        })
+      } catch (error) {
+        logger.error('Error in WebSocket connection:', error)
+        ws.close(1011, 'Erreur serveur')
+      }
     })
 
-    logger.info('WebSocket service initialized')
+    logger.info('WebSocket service initialized on path /notifications')
+  }
+
+  /**
+   * Authentifie un token AdonisJS access token
+   */
+  private async authenticateToken(token: string): Promise<User | null> {
+    try {
+      // Utiliser le provider de tokens d'AdonisJS
+      const tokensProvider = User.accessTokens
+      
+      // Vérifier le token - la méthode verify retourne l'utilisateur directement
+      const user = await tokensProvider.verify(token)
+      
+      return user || null
+    } catch (error) {
+      logger.error('Token authentication error:', error)
+      return null
+    }
   }
 
   /**
    * Envoie une notification à un utilisateur spécifique
    */
-  async sendToUser(userId: number, notification: any) {
-    if (!this.io) {
+  async sendToUser(userId: number, notification: Notification) {
+    if (!this.wss) {
       logger.warn('WebSocket service not initialized')
       return
     }
 
+    const userSockets = this.connectedUsers.get(userId)
+    if (!userSockets || userSockets.size === 0) {
+      logger.debug(`User ${userId} is not connected, notification will be retrieved on next connection`)
+      return
+    }
+
     try {
-      this.io.to(`user:${userId}`).emit('notification', {
+      const notificationData = {
         type: 'notification',
-        data: notification,
+        data: {
+          id: notification.id,
+          title: notification.title,
+          message: notification.message,
+          type: notification.type,
+          isRead: notification.isRead,
+          data: notification.data,
+          createdAt: notification.createdAt.toISO(),
+        },
+      }
+
+      // Envoyer à toutes les connexions WebSocket de l'utilisateur
+      const message = JSON.stringify(notificationData)
+      userSockets.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(message)
+        }
       })
-      
-      logger.info(`Notification sent to user ${userId} via WebSocket`)
+
+      logger.info(`Notification sent to user ${userId} via WebSocket (${userSockets.size} connection(s))`)
     } catch (error) {
       logger.error(`Error sending notification to user ${userId}:`, error)
     }
@@ -117,9 +178,9 @@ export default class WebSocketService {
    * Ferme le serveur WebSocket
    */
   close() {
-    if (this.io) {
-      this.io.close()
-      this.io = null
+    if (this.wss) {
+      this.wss.close()
+      this.wss = null
       this.connectedUsers.clear()
       logger.info('WebSocket service closed')
     }
@@ -135,4 +196,3 @@ export function getWebSocketService(): WebSocketService {
   }
   return websocketServiceInstance
 }
-
