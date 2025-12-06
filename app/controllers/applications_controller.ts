@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { ApplyToPropertyValidator } from '#validators/applications'
+import { ApplyToPropertyValidator } from '#validators/application'
 import Property from '#models/property'
 import Application, { ApplicationStatus } from '#models/application'
 import Contract from '#models/contract'
@@ -133,10 +133,16 @@ export default class ApplicationsController {
 
     // Notification au bailleur propriétaire
     const notifier = new NotificationsService()
-    await notifier.notifyUser(property.user_id, 'Nouvelle candidature', `Un locataire a postulé pour votre logement #${propertyId}`, {
-      propertyId,
-      applicationId: appRow.id,
-    })
+    await notifier.notifyUser(
+      property.user_id,
+      'Nouvelle candidature',
+      `Un locataire a postulé pour votre logement #${propertyId}`,
+      'application',
+      {
+        propertyId,
+        applicationId: appRow.id,
+      }
+    )
 
     return response.created({ message: 'Candidature enregistrée', data: appRow })
   }

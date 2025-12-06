@@ -54,10 +54,34 @@ export default class FlutterwaveProvider {
     }
   }
 
-  /** Vérifie la signature de webhook Flutterwave via header 'verif-hash' */
+  /**
+   * Vérifie la signature de webhook Flutterwave
+   * 
+   * Flutterwave utilise deux méthodes de vérification :
+   * 1. Header 'verif-hash' : hash simple à comparer avec FLW_WEBHOOK_HASH
+   * 2. Header 'x-flutterwave-signature' : signature HMAC SHA512 du payload
+   * 
+   * @param headerHash - Hash ou signature du header
+   */
   verifyWebhookSignature(headerHash?: string): boolean {
-    if (!this.webhookHash) return false
-    return Boolean(headerHash && headerHash === this.webhookHash)
+    if (!headerHash) return false
+
+    // Méthode 1: Vérification simple avec verif-hash (MVP)
+    if (this.webhookHash && headerHash === this.webhookHash) {
+      return true
+    }
+
+    // Méthode 2: Vérification HMAC (recommandée pour production)
+    // TODO: Implémenter la vérification HMAC SHA512 avec la secret key
+    // const crypto = require('crypto')
+    // const expectedSignature = crypto
+    //   .createHmac('sha512', this.secretKey)
+    //   .update(JSON.stringify(rawBody))
+    //   .digest('hex')
+    // return crypto.timingSafeEqual(Buffer.from(headerHash), Buffer.from(expectedSignature))
+
+    // Pour l'instant, on accepte seulement la méthode simple
+    return false
   }
 }
 

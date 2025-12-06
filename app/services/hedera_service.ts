@@ -120,4 +120,123 @@ export default class HederaService {
     // Retourne l'ID de la transaction confirmée.
     return tx.transactionId.toString()
   }
+
+  // ===================================================
+  // 🔹 5. MISE À JOUR D'UN CONTRAT SUR LA CHAÎNE
+  // ===================================================
+  /**
+   * Met à jour un contrat existant sur la chaîne Hedera
+   * @param updates - Les mises à jour à apporter (dbContractId, newEndDate, newStatus)
+   */
+  async updateContractOnChain(updates: {
+    dbContractId: number
+    newEndDate?: any
+    newStatus?: string
+  }): Promise<string> {
+    const contract = ContractId.fromString(this.MASTER_CONTRACT_ID)
+    const results: string[] = []
+
+    try {
+      // Si une nouvelle date de fin est fournie, mettre à jour
+      if (updates.newEndDate !== undefined && updates.newEndDate !== null) {
+        let timestamp: number = 0
+        
+        // Gérer différents formats de date (DateTime de Luxon, Date JS, string, number)
+        if (updates.newEndDate && typeof updates.newEndDate.toSeconds === 'function') {
+          // DateTime de Luxon
+          timestamp = updates.newEndDate.toSeconds()
+        } else if (updates.newEndDate instanceof Date) {
+          timestamp = Math.floor(updates.newEndDate.getTime() / 1000)
+        } else if (typeof updates.newEndDate === 'string') {
+          timestamp = Math.floor(new Date(updates.newEndDate).getTime() / 1000)
+        } else if (typeof updates.newEndDate === 'number') {
+          timestamp = Math.floor(updates.newEndDate / 1000)
+        }
+
+        const params = new ContractFunctionParameters()
+          .addUint256(updates.dbContractId)
+          .addUint64(timestamp)
+
+        const tx = await new ContractExecuteTransaction()
+          .setContractId(contract)
+          .setGas(400000)
+          .setFunction('updateEndDate', params)
+          .execute(this.client)
+
+        const receipt = await tx.getReceipt(this.client)
+        if (!receipt.status.toString().includes('SUCCESS')) {
+          throw new Error(`EndDate update failed: ${receipt.status.toString()}`)
+        }
+        results.push(tx.transactionId.toString())
+      }
+
+      // Si un nouveau statut est fourni, mettre à jour
+      if (updates.newStatus !== undefined && updates.newStatus !== null) {
+        const params = new ContractFunctionParameters()
+          .addUint256(updates.dbContractId)
+          .addString(updates.newStatus)
+
+        const tx = await new ContractExecuteTransaction()
+          .setContractId(contract)
+          .setGas(400000)
+          .setFunction('updateStatus', params)
+          .execute(this.client)
+
+        const receipt = await tx.getReceipt(this.client)
+        if (!receipt.status.toString().includes('SUCCESS')) {
+          throw new Error(`Status update failed: ${receipt.status.toString()}`)
+        }
+        results.push(tx.transactionId.toString())
+      }
+
+      if (results.length === 0) {
+        throw new Error('Aucune mise à jour à effectuer')
+      }
+
+      // Retourner la dernière transaction (ou toutes si nécessaire)
+      return results[results.length - 1]
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour du contrat Hedera:', error)
+      throw new Error(
+        `Échec de la mise à jour du contrat on-chain: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
+
+  // ===================================================
+  // 🔹 6. RÉSILIATION D'UN CONTRAT SUR LA CHAÎNE
+  // ===================================================
+  /**
+   * Résilie un contrat de location sur la chaîne Hedera
+   * @param dbContractId - L'ID du contrat dans la base de données
+   * @returns L'ID de la transaction de résiliation
+   */
+  async terminateLease(dbContractId: number): Promise<string> {
+    const contract = ContractId.fromString(this.MASTER_CONTRACT_ID)
+
+    try {
+      // Mettre le statut à "terminated" ou "résilié"
+      const params = new ContractFunctionParameters()
+        .addUint256(dbContractId)
+        .addString('terminated')
+
+      const tx = await new ContractExecuteTransaction()
+        .setContractId(contract)
+        .setGas(400000)
+        .setFunction('updateStatus', params)
+        .execute(this.client)
+
+      const receipt = await tx.getReceipt(this.client)
+      if (!receipt.status.toString().includes('SUCCESS')) {
+        throw new Error(`Lease termination failed: ${receipt.status.toString()}`)
+      }
+
+      return tx.transactionId.toString()
+    } catch (error) {
+      console.error('Erreur lors de la résiliation du contrat Hedera:', error)
+      throw new Error(
+        `Échec de la résiliation du contrat on-chain: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+  }
 }

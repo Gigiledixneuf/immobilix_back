@@ -29,7 +29,7 @@ const IMPORTER = (filePath: string) => {
   return import(filePath)
 }
 
-new Ignitor(APP_ROOT, { importer: IMPORTER })
+const ignitor = new Ignitor(APP_ROOT, { importer: IMPORTER })
   .tap((app) => {
     app.booting(async () => {
       await import('#start/env')
@@ -37,6 +37,8 @@ new Ignitor(APP_ROOT, { importer: IMPORTER })
     app.listen('SIGTERM', () => app.terminate())
     app.listenIf(app.managedByPm2, 'SIGINT', () => app.terminate())
   })
+
+ignitor
   .httpServer()
   .start()
   .catch((error) => {
