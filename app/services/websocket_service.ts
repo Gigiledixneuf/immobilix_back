@@ -151,24 +151,29 @@ export default class WebSocketService {
       // Utiliser le provider de tokens d'AdonisJS
       const tokensProvider = User.accessTokens
       
-      // Vérifier le token - la méthode verify retourne l'utilisateur directement
-      // Note: verify peut retourner null si le token est invalide
+      logger.debug(`Attempting to verify token: ${token.substring(0, 20)}...`)
+      
+      // Vérifier le token - la méthode verify peut retourner l'utilisateur ou null
+      // Elle peut aussi lancer une exception
       const user = await tokensProvider.verify(token)
       
       if (!user) {
-        logger.warn('Token verification returned null')
+        logger.warn('Token verification returned null - token is invalid or expired')
         return null
       }
       
+      logger.debug(`Token verified successfully for user: ${user.id}`)
       return user
-    } catch (error) {
-      logger.error('Token authentication error:', error)
-      if (error instanceof Error) {
-        logger.error('Error details:', {
-          message: error.message,
-          stack: error.stack,
-        })
-      }
+    } catch (error: any) {
+      // Logger l'erreur complète
+      logger.error('Token authentication error:', {
+        error: error,
+        message: error?.message || String(error),
+        name: error?.name || 'Unknown',
+        code: error?.code,
+        stack: error?.stack,
+        tokenPreview: token.substring(0, 20) + '...',
+      })
       return null
     }
   }
