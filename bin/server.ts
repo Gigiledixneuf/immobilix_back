@@ -43,6 +43,9 @@ ignitor
   .start()
   .then(async () => {
     // Initialiser WebSocket après le démarrage du serveur HTTP
+    // Attendre un peu pour s'assurer que le serveur est prêt
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    
     try {
       // Accéder au serveur HTTP via le service server d'AdonisJS
       const server = await import('@adonisjs/core/services/server')
