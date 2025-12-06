@@ -23,7 +23,12 @@ export default class WebSocketService {
       path: '/notifications',
     })
 
-    logger.info('WebSocket service initialized (noServer mode)')
+    // Utiliser console.log car logger peut ne pas être disponible lors de l'initialisation
+    try {
+      logger.info('WebSocket service initialized (noServer mode)')
+    } catch {
+      console.log('✅ WebSocket service initialized (noServer mode)')
+    }
   }
 
   /**

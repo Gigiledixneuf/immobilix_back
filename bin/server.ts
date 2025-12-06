@@ -41,21 +41,6 @@ const ignitor = new Ignitor(APP_ROOT, { importer: IMPORTER })
 ignitor
   .httpServer()
   .start()
-  .then(async () => {
-    // Initialiser WebSocket avec noServer: true
-    // Les upgrades seront gérés par le middleware websocket_middleware
-    try {
-      const { getWebSocketService } = await import('#services/websocket_service')
-      const logger = (await import('@adonisjs/core/services/logger')).default
-      
-      const websocketService = getWebSocketService()
-      websocketService.initialize()
-      logger.info('✅ WebSocket service initialized successfully (noServer mode)')
-    } catch (error) {
-      console.error('❌ Failed to initialize WebSocket service:', error)
-      console.error('   Error details:', error instanceof Error ? error.stack : error)
-    }
-  })
   .catch((error) => {
     process.exitCode = 1
     prettyPrintError(error)
