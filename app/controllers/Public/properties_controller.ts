@@ -77,35 +77,60 @@ export default class PublicPropertiesController {
     }
 
     const properties = await query.orderBy('created_at', 'desc').paginate(page, limit)
+    const propertyIds = properties.all().map((p) => p.id)
 
-    // Calculer la note moyenne et le nombre d'avis pour chaque propriété
-    const propertiesWithStats = await Promise.all(
-      properties.all().map(async (property) => {
-        let totalReviews = 0
-        let averageRating = 0
-        let reviewsList: any[] = []
+    // OPTIMISATION: Récupérer toutes les reviews en une seule requête (évite N+1)
+    let reviewsByProperty: Map<number, any[]> = new Map()
+    let reviewStatsByProperty: Map<number, { total: number; average: number }> = new Map()
 
-        // Essayer de récupérer les reviews, mais gérer l'erreur si la table n'existe pas
-        try {
-          const reviews = await Review.query()
-            .where('property_id', property.id)
-            .select('rating')
+    if (propertyIds.length > 0) {
+      try {
+        // Récupérer toutes les reviews pour toutes les propriétés en une requête
+        const allReviews = await Review.query()
+          .whereIn('property_id', propertyIds)
+          .preload('user', (userQuery) => {
+            userQuery.select(['id', 'fullName'])
+          })
+          .orderBy('created_at', 'desc')
 
-          totalReviews = reviews.length
-          averageRating =
+        // Grouper les reviews par property_id
+        allReviews.forEach((review) => {
+          const propId = review.propertyId
+          if (!reviewsByProperty.has(propId)) {
+            reviewsByProperty.set(propId, [])
+          }
+          reviewsByProperty.get(propId)!.push(review)
+        })
+
+        // Calculer les statistiques pour chaque propriété
+        propertyIds.forEach((propId) => {
+          const propReviews = reviewsByProperty.get(propId) || []
+          const totalReviews = propReviews.length
+          const averageRating =
             totalReviews > 0
-              ? reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews
+              ? propReviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
               : 0
-          
-          // Récupérer les reviews avec user pour les commentaires
-          reviewsList = property.reviews || []
-        } catch (e) {
-          // Si la table reviews n'existe pas, utiliser des valeurs par défaut
-          console.log(`Reviews not available for property ${property.id}: ${e}`)
-          totalReviews = 0
-          averageRating = 0
-          reviewsList = []
-        }
+
+          reviewStatsByProperty.set(propId, {
+            total: totalReviews,
+            average: averageRating,
+          })
+        })
+      } catch (e) {
+        // Si la table reviews n'existe pas, utiliser des valeurs par défaut
+        console.log('Reviews table not available, continuing without reviews')
+      }
+    }
+
+    // Construire la réponse avec les données pré-chargées
+    const propertiesWithStats = properties.all().map((property) => {
+      const stats = reviewStatsByProperty.get(property.id) || { total: 0, average: 0 }
+      const propertyReviews = reviewsByProperty.get(property.id) || []
+      
+      // Utiliser les reviews préchargées depuis la relation ou depuis notre Map
+      const reviewsList = property.reviews && property.reviews.length > 0 
+        ? property.reviews.slice(0, 5) // Limiter à 5 pour la liste
+        : propertyReviews.slice(0, 5)
 
         // Formater l'URL de l'image si elle existe
         let imageUrl = property.mainPhotoUrl
@@ -138,8 +163,8 @@ export default class PublicPropertiesController {
             : null,
           // Avis et commentaires
           reviews: {
-            averageRating: Math.round(averageRating * 10) / 10, // Arrondir à 1 décimale
-            totalReviews: totalReviews,
+            averageRating: Math.round(stats.average * 10) / 10, // Arrondir à 1 décimale
+            totalReviews: stats.total,
             comments: reviewsList.map((review) => ({
               id: review.id,
               rating: review.rating,
@@ -150,7 +175,6 @@ export default class PublicPropertiesController {
           },
         }
       })
-    )
 
     return response.ok({
       meta: properties.getMeta(),

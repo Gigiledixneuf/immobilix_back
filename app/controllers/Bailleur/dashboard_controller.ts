@@ -54,52 +54,64 @@ export default class DashboardController {
       let pendingInvoicesCount = 0
       let pendingInvoicesAmountTotal = 0
 
+      // OPTIMISATION: Récupérer contractIds une seule fois au début
+      let contractIdsForStats: number[] = []
       if (propertyIds.length > 0) {
-        const userContracts = await Contract.query().whereIn('propertyId', propertyIds).select('id')
-        const contractIds = userContracts.map((c) => c.id)
+        const userContractsForStats = await Contract.query().whereIn('propertyId', propertyIds).select('id')
+        contractIdsForStats = userContractsForStats.map((c) => c.id)
+      }
 
-        if (contractIds.length > 0) {
+      if (contractIdsForStats.length > 0) {
+        // OPTIMISATION: Exécuter toutes les requêtes en parallèle
+        const [
+          totalRevenue,
+          monthlyRevenue,
+          pendingInvoices,
+          pendingInvoicesAmount,
+        ] = await Promise.all([
           // Revenus totaux
-          const totalRevenue = await db
+          db
             .from('payments')
-            .whereIn('contract_id', contractIds)
+            .whereIn('contract_id', contractIdsForStats)
             .where('status', 'paid')
             .sum('amount as total')
-            .first()
-          totalRevenueAmount = Number(totalRevenue?.total || 0)
-
+            .first(),
+          
           // Revenus du mois en cours
-          const currentMonth = new Date()
-          const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
-          const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
-
-          const monthlyRevenue = await db
-            .from('payments')
-            .whereIn('contract_id', contractIds)
-            .where('status', 'paid')
-            .whereBetween('created_at', [startOfMonth, endOfMonth])
-            .sum('amount as total')
-            .first()
-          monthlyRevenueAmount = Number(monthlyRevenue?.total || 0)
-
+          (async () => {
+            const currentMonth = new Date()
+            const startOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), 1)
+            const endOfMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0)
+            return await db
+              .from('payments')
+              .whereIn('contract_id', contractIdsForStats)
+              .where('status', 'paid')
+              .whereBetween('created_at', [startOfMonth, endOfMonth])
+              .sum('amount as total')
+              .first()
+          })(),
+          
           // Factures en attente
-          const pendingInvoices = await db
+          db
             .from('invoices')
-            .whereIn('contract_id', contractIds)
+            .whereIn('contract_id', contractIdsForStats)
             .where('status', 'pending')
             .count('* as total')
-            .first()
-          pendingInvoicesCount = Number(pendingInvoices?.total || 0)
-
+            .first(),
+          
           // Montant total des factures en attente
-          const pendingInvoicesAmount = await db
+          db
             .from('invoices')
-            .whereIn('contract_id', contractIds)
+            .whereIn('contract_id', contractIdsForStats)
             .where('status', 'pending')
             .sum('amount as total')
-            .first()
-          pendingInvoicesAmountTotal = Number(pendingInvoicesAmount?.total || 0)
-        }
+            .first(),
+        ])
+
+        totalRevenueAmount = Number(totalRevenue?.total || 0)
+        monthlyRevenueAmount = Number(monthlyRevenue?.total || 0)
+        pendingInvoicesCount = Number(pendingInvoices?.total || 0)
+        pendingInvoicesAmountTotal = Number(pendingInvoicesAmount?.total || 0)
       }
 
       // 8. Propriétés récentes (5 dernières)
@@ -119,37 +131,36 @@ export default class DashboardController {
           .limit(5)
       }
 
+      // OPTIMISATION: Réutiliser contractIdsForStats si déjà calculé, sinon les récupérer
+      let contractIds: number[] = contractIdsForStats || []
+      if (propertyIds.length > 0 && contractIds.length === 0) {
+        const userContracts = await Contract.query().whereIn('propertyId', propertyIds).select('id')
+        contractIds = userContracts.map((c) => c.id)
+      }
+
       // 10. Paiements récents (10 derniers)
       let recentPayments: any[] = []
-      if (propertyIds.length > 0) {
-        const userContracts = await Contract.query().whereIn('propertyId', propertyIds).select('id')
-        const contractIds = userContracts.map((c) => c.id)
-        if (contractIds.length > 0) {
-          recentPayments = await Payment.query()
-            .whereIn('contractId', contractIds)
-            .preload('contract', (query) => {
-              query.preload('property').preload('tenant')
-            })
-            .orderBy('created_at', 'desc')
-            .limit(10)
-        }
+      if (contractIds.length > 0) {
+        recentPayments = await Payment.query()
+          .whereIn('contractId', contractIds)
+          .preload('contract', (query) => {
+            query.preload('property').preload('tenant')
+          })
+          .orderBy('created_at', 'desc')
+          .limit(10)
       }
 
       // 11. Factures récentes (10 dernières)
       let recentInvoices: any[] = []
-      if (propertyIds.length > 0) {
-        const userContracts = await Contract.query().whereIn('propertyId', propertyIds).select('id')
-        const contractIds = userContracts.map((c) => c.id)
-        if (contractIds.length > 0) {
-          recentInvoices = await Invoice.query()
-            .whereIn('contractId', contractIds)
-            .preload('contract', (query) => {
-              query.preload('property').preload('tenant')
-            })
-            .preload('tenant')
-            .orderBy('created_at', 'desc')
-            .limit(10)
-        }
+      if (contractIds.length > 0) {
+        recentInvoices = await Invoice.query()
+          .whereIn('contractId', contractIds)
+          .preload('contract', (query) => {
+            query.preload('property').preload('tenant')
+          })
+          .preload('tenant')
+          .orderBy('created_at', 'desc')
+          .limit(10)
       }
 
       return response.ok({
