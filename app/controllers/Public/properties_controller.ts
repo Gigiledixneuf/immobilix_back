@@ -136,7 +136,10 @@ export default class PublicPropertiesController {
         let imageUrl = property.mainPhotoUrl
         if (imageUrl && !imageUrl.startsWith('http')) {
           // Si l'image est un chemin relatif, construire l'URL complète
-          imageUrl = `/uploads/properties/${imageUrl}`
+          // S'assurer que le nom du fichier ne contient pas déjà le chemin
+          if (!imageUrl.startsWith('/uploads/')) {
+            imageUrl = `/uploads/properties/${imageUrl}`
+          }
         }
 
         return {

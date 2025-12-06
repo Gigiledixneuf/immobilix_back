@@ -16,6 +16,7 @@ export default class PropertySeeder extends BaseSeeder {
     }
 
     // Créer 5 logements avec un bailleur aléatoire
+    // Note: Utiliser le fichier d'image existant ou laisser null pour afficher un placeholder
     const propertiesData = [
       {
         name: 'Charmant studio au centre-ville',
@@ -27,7 +28,7 @@ export default class PropertySeeder extends BaseSeeder {
         capacity: 1,
         price: 850,
         description: 'Studio moderne proche de toutes commodités, idéal pour étudiant.',
-        mainPhotoUrl: 'studio_paris.jpg',
+        mainPhotoUrl: 'scaled_Kaalwa Adonai_20250725_104448_0000.jpg', // Utiliser le fichier existant
       },
       {
         name: 'Appartement T2 lumineux',
@@ -39,7 +40,7 @@ export default class PropertySeeder extends BaseSeeder {
         capacity: 2,
         price: 1100,
         description: 'Bel appartement avec balcon et vue dégagée, proche métro.',
-        mainPhotoUrl: 'appartement_lyon.jpg',
+        mainPhotoUrl: null, // Pas d'image pour cette propriété
       },
       {
         name: 'Maison familiale avec jardin',
@@ -51,7 +52,7 @@ export default class PropertySeeder extends BaseSeeder {
         capacity: 6,
         price: 1800,
         description: 'Grande maison avec jardin et garage dans un quartier calme.',
-        mainPhotoUrl: 'maison_toulouse.jpg',
+        mainPhotoUrl: null,
       },
       {
         name: 'Loft industriel rénové',
@@ -63,7 +64,7 @@ export default class PropertySeeder extends BaseSeeder {
         capacity: 3,
         price: 1350,
         description: 'Magnifique loft avec poutres apparentes et grande hauteur sous plafond.',
-        mainPhotoUrl: 'loft_nantes.jpg',
+        mainPhotoUrl: null,
       },
       {
         name: 'Studio cosy proche université',
@@ -75,7 +76,7 @@ export default class PropertySeeder extends BaseSeeder {
         capacity: 1,
         price: 650,
         description: 'Petit studio meublé parfait pour étudiant ou jeune actif.',
-        mainPhotoUrl: 'studio_lille.jpg',
+        mainPhotoUrl: null,
       },
     ]
 

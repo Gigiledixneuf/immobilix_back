@@ -64,6 +64,7 @@ export default class WebSocketService {
       }
 
       // Vérifier le token et récupérer l'utilisateur
+      // Le token est passé comme string dans l'URL, on doit le vérifier
       const user = await this.authenticateToken(token)
 
       if (!user) {
@@ -146,33 +147,127 @@ export default class WebSocketService {
   /**
    * Authentifie un token AdonisJS access token
    */
-  private async authenticateToken(token: string): Promise<User | null> {
+  /**
+   * Authentifie un token AdonisJS access token
+   * Le problème: verify() attend un objet AccessTokenValue, pas une string
+   * Solution: Vérification manuelle en cherchant le token dans la DB
+   */
+  private async authenticateToken(tokenString: string): Promise<User | null> {
     try {
-      // Utiliser le provider de tokens d'AdonisJS
-      const tokensProvider = User.accessTokens
-      
-      logger.debug(`Attempting to verify token: ${token.substring(0, 20)}...`)
-      
-      // Vérifier le token - la méthode verify peut retourner l'utilisateur ou null
-      // Elle peut aussi lancer une exception
-      const user = await tokensProvider.verify(token)
-      
-      if (!user) {
-        logger.warn('Token verification returned null - token is invalid or expired')
+      // Le format du token AdonisJS est: oat_<id>.<hash>
+      if (!tokenString || !tokenString.startsWith('oat_')) {
+        logger.warn('Token format invalid: must start with "oat_"')
         return null
       }
+
+      logger.debug(`Attempting to verify token: ${tokenString.substring(0, 30)}...`)
       
+      // Utiliser une vérification manuelle car verify() a un bug avec les strings
+      const user = await this.verifyTokenManually(tokenString)
+      return user
+    } catch (error: any) {
+      logger.error('Token authentication error:', {
+        message: error?.message || String(error),
+        name: error?.name || 'Unknown',
+        stack: error?.stack,
+      })
+      return null
+    }
+  }
+
+  /**
+   * Vérifie manuellement un token en cherchant dans la base de données
+   */
+  private async verifyTokenManually(tokenString: string): Promise<User | null> {
+    try {
+      // Parser le token: format est oat_<id>.<hash>
+      const tokenParts = tokenString.split('.')
+      if (tokenParts.length !== 2) {
+        logger.warn('Token format invalid: expected oat_<id>.<hash>')
+        return null
+      }
+
+      const prefixAndId = tokenParts[0] // oat_<id>
+      if (!prefixAndId.startsWith('oat_')) {
+        logger.warn('Token format invalid: must start with "oat_"')
+        return null
+      }
+
+      // L'ID du token peut être en base64 (MTI0 = 124 en base64)
+      // Essayer de décoder d'abord, sinon utiliser directement
+      let tokenId: string | number = prefixAndId.replace('oat_', '')
+      const tokenHash = tokenParts[1]
+
+      // Essayer de décoder l'ID si c'est du base64
+      try {
+        // Si c'est du base64, décoder
+        const decoded = Buffer.from(tokenId, 'base64').toString('utf-8')
+        const numericId = parseInt(decoded, 10)
+        if (!isNaN(numericId)) {
+          tokenId = numericId
+        }
+      } catch {
+        // Si le décodage échoue, utiliser l'ID tel quel
+        // Essayer de parser directement comme nombre
+        const numericId = parseInt(tokenId, 10)
+        if (!isNaN(numericId)) {
+          tokenId = numericId
+        }
+      }
+
+      // Chercher le token dans la base de données
+      const db = (await import('@adonisjs/lucid/services/db')).default
+      const hash = (await import('@adonisjs/core/services/hash')).default
+
+      // Récupérer le token depuis la DB (l'ID est numérique dans la table)
+      const tokenRecord = await db
+        .from('auth_access_tokens')
+        .where('id', tokenId)
+        .first()
+
+      if (!tokenRecord) {
+        logger.warn(`Token not found in database: ${tokenId}`)
+        return null
+      }
+
+      // Vérifier que le token n'est pas expiré
+      if (tokenRecord.expires_at) {
+        const expiresAt = new Date(tokenRecord.expires_at)
+        if (expiresAt < new Date()) {
+          logger.warn(`Token expired: ${tokenId}`)
+          return null
+        }
+      }
+
+      // Vérifier le hash du token
+      // Le hash stocké dans la DB est le hash du token complet
+      const isValid = await hash.verify(tokenRecord.hash, tokenString)
+
+      if (!isValid) {
+        logger.warn(`Token hash mismatch: ${tokenId}`)
+        return null
+      }
+
+      // Récupérer l'utilisateur associé
+      const user = await User.find(tokenRecord.tokenable_id)
+
+      if (!user) {
+        logger.warn(`User not found for token: ${tokenId}`)
+        return null
+      }
+
+      // Mettre à jour last_used_at
+      await db
+        .from('auth_access_tokens')
+        .where('id', tokenId)
+        .update({ last_used_at: new Date() })
+
       logger.debug(`Token verified successfully for user: ${user.id}`)
       return user
     } catch (error: any) {
-      // Logger l'erreur complète
-      logger.error('Token authentication error:', {
-        error: error,
+      logger.error('Error in manual token verification:', {
         message: error?.message || String(error),
-        name: error?.name || 'Unknown',
-        code: error?.code,
         stack: error?.stack,
-        tokenPreview: token.substring(0, 20) + '...',
       })
       return null
     }
