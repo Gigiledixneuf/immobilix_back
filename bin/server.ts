@@ -41,9 +41,18 @@ const ignitor = new Ignitor(APP_ROOT, { importer: IMPORTER })
 ignitor
   .httpServer()
   .start()
-  .then(async (httpServer) => {
+  .then(async () => {
     // Initialiser WebSocket après le démarrage du serveur HTTP
     try {
+      // Accéder au serveur HTTP via le service server d'AdonisJS
+      const server = await import('@adonisjs/core/services/server')
+      const httpServer = server.default.getHttpServer()
+      
+      if (!httpServer) {
+        console.error('❌ HTTP server not available for WebSocket initialization')
+        return
+      }
+
       const { getWebSocketService } = await import('#services/websocket_service')
       const logger = (await import('@adonisjs/core/services/logger')).default
       
