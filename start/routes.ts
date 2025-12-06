@@ -20,6 +20,7 @@ const ProfilesController = () => import('#controllers/profiles_controller')
 const AdminUsersController = () => import('#controllers/Admin/users_controller')
 const LoginController = () => import('#controllers/Auth/login_controller')
 const RegistersController = () => import('#controllers/Auth/registers_controller')
+const LogoutController = () => import('#controllers/Auth/logout_controller')
 const NotificationsController = () => import('#controllers/notifications_controller')
 const InvoicesController = () => import('#controllers/invoices_controller')
 const DashboardController = () => import('#controllers/Bailleur/dashboard_controller')
@@ -151,6 +152,7 @@ router.get('/uploads/*', async ({ request, response }) => {
 //Routes protégées par authentification
 router
   .group(() => {
+    router.post('logout', [LogoutController, 'logout'])
     router.resource('/properties', PropertiesController)
     router.get('/tenants', [PropertiesController, 'listTenants'])
     router.get('/properties/:id/applications', [ApplicationsController, 'index'])
