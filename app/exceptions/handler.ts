@@ -139,7 +139,7 @@ export default class HttpExceptionHandler extends ExceptionHandler {
         messages: error.messages,
         url: ctx.request.url(),
         method: ctx.request.method(),
-        userId: ctx.auth.user?.id,
+        userId: ctx.auth?.user?.id,
       }, 'Validation error')
       return
     }
@@ -150,7 +150,7 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       method: ctx.request.method(),
       ip: ctx.request.ip(),
       userAgent: ctx.request.header('user-agent'),
-      userId: ctx.auth.user?.id,
+      userId: ctx.auth?.user?.id,
       body: this.shouldLogBody(ctx.request.method()) 
         ? ctx.request.body() 
         : '[REDACTED]',

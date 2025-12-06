@@ -31,6 +31,9 @@ export default class WebSocketProvider {
     }
 
     try {
+      // Importer le logger maintenant qu'il est disponible
+      const logger = (await import('@adonisjs/core/services/logger')).default
+      
       // Essayer d'accéder au serveur HTTP via le container
       const server = this.app.container.use('server') || await import('@adonisjs/core/services/server').then(m => m.default)
       
@@ -66,7 +69,7 @@ export default class WebSocketProvider {
         logger.info('   Server keys:', server ? Object.keys(server) : 'null')
       }
     } catch (error) {
-      logger.error('Error setting up WebSocket upgrade listener:', error)
+      console.error('Error setting up WebSocket upgrade listener:', error)
     }
   }
 

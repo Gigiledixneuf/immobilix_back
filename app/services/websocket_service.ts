@@ -152,11 +152,23 @@ export default class WebSocketService {
       const tokensProvider = User.accessTokens
       
       // Vérifier le token - la méthode verify retourne l'utilisateur directement
+      // Note: verify peut retourner null si le token est invalide
       const user = await tokensProvider.verify(token)
       
-      return user || null
+      if (!user) {
+        logger.warn('Token verification returned null')
+        return null
+      }
+      
+      return user
     } catch (error) {
       logger.error('Token authentication error:', error)
+      if (error instanceof Error) {
+        logger.error('Error details:', {
+          message: error.message,
+          stack: error.stack,
+        })
+      }
       return null
     }
   }

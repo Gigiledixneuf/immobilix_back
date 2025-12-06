@@ -86,3 +86,55 @@ router
     router.post('webhook/payment', [WebhooksController, 'payment'])
   })
   .prefix('/api')
+
+// Route pour servir les fichiers statiques (images uploadées)
+router.get('/uploads/*', async ({ request, response }) => {
+  const fs = await import('node:fs/promises')
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  
+  try {
+    // Récupérer le chemin du fichier demandé
+    const filePath = request.param('*')
+    const appRoot = new URL('../../', import.meta.url)
+    const uploadsDir = path.join(fileURLToPath(appRoot), 'uploads', filePath)
+    
+    // Vérifier que le fichier existe
+    try {
+      await fs.access(uploadsDir)
+    } catch {
+      return response.status(404).json({
+        status: 'error',
+        message: 'Fichier non trouvé',
+        code: 'FILE_NOT_FOUND',
+      })
+    }
+    
+    // Lire le fichier
+    const fileContent = await fs.readFile(uploadsDir)
+    const ext = path.extname(uploadsDir).toLowerCase()
+    
+    // Déterminer le Content-Type selon l'extension
+    const mimeTypes: Record<string, string> = {
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.png': 'image/png',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.pdf': 'application/pdf',
+    }
+    
+    const contentType = mimeTypes[ext] || 'application/octet-stream'
+    
+    return response
+      .header('Content-Type', contentType)
+      .header('Cache-Control', 'public, max-age=31536000') // Cache 1 an
+      .send(fileContent)
+  } catch (error) {
+    return response.status(500).json({
+      status: 'error',
+      message: 'Erreur lors de la lecture du fichier',
+      code: 'FILE_READ_ERROR',
+    })
+  }
+})
