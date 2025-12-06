@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { inject } from '@adonisjs/core'
 import Invoice, { InvoiceStatus } from '#models/invoice'
 import Contract from '#models/contract'
 import Property from '#models/property'
@@ -7,8 +8,11 @@ import { DateTime } from 'luxon'
 import Payment from '#models/payment'
 import { PaymentMethods, PaymentStatus } from '#models/payment'
 import NotificationsService from '#services/notifications_service'
+import HederaService from '#services/hedera_service'
 
+@inject()
 export default class InvoicesController {
+  constructor(protected hederaService: HederaService) {}
   /**
    * GET /api/invoices
    * Récupère les factures selon le rôle de l'utilisateur
@@ -216,30 +220,74 @@ export default class InvoicesController {
 
     // Si c'est un paiement crypto, traiter immédiatement
     if (paymentMethod === PaymentMethods.HBAR || paymentMethod === PaymentMethods.USDC) {
-      // TODO: Intégrer avec HederaService pour le paiement on-chain
-      // Pour l'instant, on marque comme payé
-      payment.status = PaymentStatus.PAID
-      payment.transactionId = `tx_${Date.now()}`
-      await payment.save()
-
-      invoice.status = InvoiceStatus.PAID
-      invoice.paidAt = DateTime.now()
-      invoice.transactionHash = payment.transactionId
-      await invoice.save()
-
-      // Notification au bailleur
-      const notifier = new NotificationsService()
-      await notifier.notifyUser(
-        invoice.landlordId,
-        'Facture payée',
-        `La facture #${invoice.id} a été payée par le locataire`,
-        'payment',
-        {
-          invoiceId: invoice.id,
-          amount: invoice.amount,
-          contractId: invoice.contractId,
+      try {
+        // S'assurer que le contrat existe on-chain avant de faire le paiement
+        if (!contract.hederaContractId) {
+          const property = await contract.related('property').query().first()
+          const endDate = contract.endDate
+          const hederaData = {
+            contractId: contract.id,
+            landlordId: property ? property.user_id : 0,
+            tenantId: contract.tenantId,
+            endDate: endDate || null,
+            rentAmount: contract.rentAmount,
+            currency: contract.currency,
+            status: contract.status,
+            depositMonths: contract.depositMonths || 0,
+            depositAmount: contract.depositAmount || 0,
+            depositStatus: contract.depositStatus || 'pending',
+          }
+          try {
+            const hederaContratId = await this.hederaService.createContratOnChain(hederaData as any)
+            contract.hederaContractId = hederaContratId
+            await contract.save()
+          } catch (e) {
+            console.error('Hedera create lease failed for invoice payment:', e)
+            // On continue vers paiement, mais Hedera refusera si le lease n'existe pas
+          }
         }
-      )
+
+        // Enregistrer le paiement on-chain
+        const transactionId = await this.hederaService.makePaymentOnChain({
+          dbContractId: contract.id,
+          paymentId: payment.id,
+          amount: Math.round(Number(payment.amount)),
+          paymentMethod: paymentMethod,
+        })
+
+        payment.transactionId = transactionId
+        payment.status = PaymentStatus.PAID
+        await payment.save()
+
+        invoice.status = InvoiceStatus.PAID
+        invoice.paidAt = DateTime.now()
+        invoice.transactionHash = transactionId
+        await invoice.save()
+
+        // Notification au bailleur
+        const notifier = new NotificationsService()
+        await notifier.notifyUser(
+          invoice.landlordId,
+          'Facture payée',
+          `La facture #${invoice.id} a été payée par le locataire via ${paymentMethod}`,
+          'payment',
+          {
+            invoiceId: invoice.id,
+            amount: invoice.amount,
+            contractId: invoice.contractId,
+            transactionId: transactionId,
+          }
+        )
+      } catch (error) {
+        // En cas d'erreur Hedera, marquer le paiement comme échoué
+        payment.status = PaymentStatus.FAILED
+        await payment.save()
+        console.error('Erreur lors du paiement Hedera pour facture:', error)
+        return response.badRequest({
+          message: 'Paiement crypto échoué',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
     } else {
       // Pour Mobile Money, le paiement sera confirmé via webhook
       // On garde la facture en pending pour l'instant
