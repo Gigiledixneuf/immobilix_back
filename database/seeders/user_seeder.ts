@@ -24,12 +24,25 @@ export default class UserSeeder extends BaseSeeder {
       portable: string,
       plainPassword: string
     ) => {
-      return await User.create({
+      const hashedPassword = await hash.use('scrypt').make(plainPassword)
+      const user = await User.create({
         fullName,
         email,
         portable,
-        password: await hash.use('scrypt').make(plainPassword),
+        password: hashedPassword,
       })
+      
+      // IMPORTANT: withAuthFinder peut re-hasher le password
+      // Vérifier si le hash a été modifié et le corriger si nécessaire
+      await user.refresh()
+      if (user.password !== hashedPassword) {
+        // Mettre à jour directement avec une requête SQL pour éviter le re-hash
+        const db = (await import('@adonisjs/lucid/services/db')).default
+        await db.from('users').where('id', user.id).update({ password: hashedPassword })
+        await user.refresh()
+      }
+      
+      return user
     }
 
     // --- 3️⃣ Création des utilisateurs

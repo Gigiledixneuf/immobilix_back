@@ -20,6 +20,8 @@ const ProfilesController = () => import('#controllers/profiles_controller')
 const AdminUsersController = () => import('#controllers/Admin/users_controller')
 const LoginController = () => import('#controllers/Auth/login_controller')
 const RegistersController = () => import('#controllers/Auth/registers_controller')
+const LogoutController = () => import('#controllers/Auth/logout_controller')
+const ForgotPasswordsController = () => import('#controllers/Auth/forgot_passwords_controller')
 const NotificationsController = () => import('#controllers/notifications_controller')
 const InvoicesController = () => import('#controllers/invoices_controller')
 const DashboardController = () => import('#controllers/Bailleur/dashboard_controller')
@@ -151,6 +153,7 @@ router.get('/uploads/*', async ({ request, response }) => {
 //Routes protégées par authentification
 router
   .group(() => {
+    router.post('logout', [LogoutController, 'logout'])
     router.resource('/properties', PropertiesController)
     router.get('/tenants', [PropertiesController, 'listTenants'])
     router.get('/properties/:id/applications', [ApplicationsController, 'index'])
@@ -197,8 +200,12 @@ router
 // Routes publiques (guest)
 router
   .group(() => {
-    router.post('login', [LoginController, 'login'])
+    // Route login avec rate limiting
+    // Le middleware rateLimit utilise les valeurs par défaut (5 tentatives / 15 min)
+    router.post('login', [LoginController, 'login']).use(middleware.rateLimit())
     router.post('register', [RegistersController, 'register'])
+    router.post('forgot-password', [ForgotPasswordsController, 'requestReset'])
+    router.post('reset-password', [ForgotPasswordsController, 'resetPassword'])
     router.get('public/properties', [PublicPropertiesController, 'index'])
     router.get('public/properties/:id', [PublicPropertiesController, 'show'])
     router.post('webhook/payment', [WebhooksController, 'payment'])
