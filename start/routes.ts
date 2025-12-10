@@ -151,6 +151,18 @@ router.get('/uploads/*', async ({ request, response }) => {
   }
 })
 
+// Route pour WebSocket /notifications (sans /api)
+// Cette route permet au WebSocket de fonctionner, mais retourne une erreur pour les requêtes HTTP normales
+// Le middleware WebSocket intercepte les upgrades avant que cette route ne soit appelée
+router.get('/notifications', async ({ request, response }) => {
+  // Pour les requêtes HTTP normales, retourner une erreur indiquant d'utiliser /api/notifications
+  return response.status(400).json({
+    status: 'error',
+    message: 'Cette route est réservée pour les connexions WebSocket. Utilisez /api/notifications pour les requêtes HTTP.',
+    code: 'WEBSOCKET_ROUTE_ONLY',
+  })
+})
+
 //Routes protégées par authentification
 router
   .group(() => {
