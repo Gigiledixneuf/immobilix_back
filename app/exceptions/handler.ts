@@ -70,8 +70,14 @@ export default class HttpExceptionHandler extends ExceptionHandler {
         })
       }
 
-      // Erreur de contrainte unique
-      if (dbError.code === '23505' || dbError.message?.includes('unique constraint')) {
+      // Erreur de contrainte unique (PostgreSQL: 23505, MySQL: ER_DUP_ENTRY/1062)
+      if (
+        dbError.code === '23505' || 
+        dbError.code === 'ER_DUP_ENTRY' ||
+        dbError.code === 1062 ||
+        dbError.message?.includes('unique constraint') ||
+        dbError.message?.includes('Duplicate entry')
+      ) {
         return ctx.response.status(409).json({
           ...responseFormat,
           message: 'Cette ressource existe déjà',

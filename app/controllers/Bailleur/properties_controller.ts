@@ -311,6 +311,7 @@ export default class PropertiesController {
 
     property.merge({
       available_from: availableFrom,
+      available_time: payload.available_time,
       creation_step: Math.max(property.creation_step, 2),
     })
     await property.save()
@@ -693,9 +694,12 @@ export default class PropertiesController {
   }
 
   /**
-   * ✏️ Modifier un logement
+   * ✏️ Modifier un logement (support multi-step comme store)
    */
   async update({ params, request, auth, response }: HttpContext) {
+    const logger = (await import('@adonisjs/core/services/logger')).default
+    logger.info(`📝 [PROPERTY UPDATE] Requête reçue - ID: ${params.id}, Method: ${request.method()}`)
+    
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
@@ -704,6 +708,18 @@ export default class PropertiesController {
     if (property.user_id !== user.id)
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
 
+    // Récupérer step depuis body ou query params (comme dans store)
+    const stepParam = request.input('step') ?? request.qs().step
+    const step = stepParam ? Number(stepParam) : null
+
+    logger.info(`📝 [PROPERTY UPDATE] Step reçu: ${step}, propertyId: ${params.id}`)
+
+    // Si un step est fourni, utiliser la logique multi-step
+    if (step) {
+      return await this.handleUpdateStep(step, request, response, user, property)
+    }
+
+    // Sinon, utiliser l'ancienne méthode de mise à jour complète
     const payload = await request.validateUsing(PropertyValidator)
 
     let fileName: string | undefined
@@ -717,11 +733,11 @@ export default class PropertiesController {
       address: payload.address,
       city: payload.city,
       type: payload.type,
-      surface: property.surface ?? property.surface,
-      rooms: property.rooms ?? property.rooms,
-      capacity: property.capacity ?? property.capacity,
-      price: property.price ?? property.price,
-      description: property.description ?? property.description,
+      surface: payload.surface ?? property.surface,
+      rooms: payload.rooms ?? property.rooms,
+      capacity: payload.capacity ?? property.capacity,
+      price: payload.price ?? property.price,
+      description: payload.description ?? property.description,
       mainPhotoUrl: fileName ?? property.mainPhotoUrl,
     })
 
@@ -729,6 +745,218 @@ export default class PropertiesController {
 
     return response.ok({
       message: 'Logement mis à jour avec succès',
+      data: property,
+    })
+  }
+
+  /**
+   * Gérer la mise à jour par étape (similaire à handleStepX mais pour update)
+   */
+  private async handleUpdateStep(
+    step: number,
+    request: any,
+    response: HttpContext['response'],
+    user: User,
+    property: Property
+  ) {
+    const logger = (await import('@adonisjs/core/services/logger')).default
+    
+    switch (step) {
+      case 1:
+        return await this.handleUpdateStep1(request, response, property)
+      case 2:
+        return await this.handleUpdateStep2(request, response, property)
+      case 3:
+        return await this.handleUpdateStep3(request, response, property)
+      case 4:
+        return await this.handleUpdateStep4(request, response, property)
+      case 5:
+        return await this.handleUpdateStep5(request, response, property)
+      case 6:
+        return await this.handleUpdateStep6(request, response, property)
+      case 7:
+        return await this.handleUpdateStep7(request, response, property)
+      case 8:
+        return await this.handleUpdateStep8(request, response, property)
+      default:
+        return response.badRequest({ message: 'Étape invalide' })
+    }
+  }
+
+  private async handleUpdateStep1(request: any, response: HttpContext['response'], property: Property) {
+    const payload = await request.validateUsing(Step1AddressValidator)
+    
+    property.merge({
+      address: payload.address,
+      street_number: payload.street_number,
+      city: payload.city,
+      state: payload.state,
+      postal_code: payload.postal_code,
+    })
+    await property.save()
+
+    return response.ok({
+      message: 'Étape 1 mise à jour avec succès',
+      data: { property, step: 1 },
+    })
+  }
+
+  private async handleUpdateStep2(request: any, response: HttpContext['response'], property: Property) {
+    const payload = await request.validateUsing(Step2AvailabilityValidator)
+    
+    let availableFrom: DateTime | undefined
+    if (payload.available_from) {
+      if (payload.available_from instanceof DateTime) {
+        availableFrom = payload.available_from
+      } else if (payload.available_from instanceof Date) {
+        availableFrom = DateTime.fromJSDate(payload.available_from)
+      } else if (typeof payload.available_from === 'string') {
+        availableFrom = DateTime.fromISO(payload.available_from)
+      } else {
+        availableFrom = DateTime.fromISO(String(payload.available_from))
+      }
+    }
+
+    property.merge({
+      available_from: availableFrom,
+      available_time: payload.available_time,
+    })
+    await property.save()
+
+    return response.ok({
+      message: 'Étape 2 mise à jour avec succès',
+      data: { property, step: 2 },
+    })
+  }
+
+  private async handleUpdateStep3(request: any, response: HttpContext['response'], property: Property) {
+    const payload = await request.validateUsing(Step3RentalTimingValidator)
+    
+    // Note: rental_timing n'est pas encore dans le modèle, on peut l'ajouter si nécessaire
+    // Pour l'instant, on ne fait rien ou on stocke dans un champ personnalisé
+    await property.save()
+
+    return response.ok({
+      message: 'Étape 3 mise à jour avec succès',
+      data: { property, step: 3 },
+    })
+  }
+
+  private async handleUpdateStep4(request: any, response: HttpContext['response'], property: Property) {
+    const payload = await request.validateUsing(Step4RentalReasonValidator)
+    
+    property.merge({
+      rental_reason: payload.rental_reason,
+      rental_reason_other: payload.rental_reason_other,
+    })
+    await property.save()
+
+    return response.ok({
+      message: 'Étape 4 mise à jour avec succès',
+      data: { property, step: 4 },
+    })
+  }
+
+  private async handleUpdateStep5(request: any, response: HttpContext['response'], property: Property) {
+    const payload = await request.validateUsing(Step5DescriptionValidator)
+    
+    property.merge({
+      description: payload.description,
+    })
+    await property.save()
+
+    return response.ok({
+      message: 'Étape 5 mise à jour avec succès',
+      data: { property, step: 5 },
+    })
+  }
+
+  private async handleUpdateStep6(request: any, response: HttpContext['response'], property: Property) {
+    const payload = await request.validateUsing(Step6PropertyFactsValidator)
+    
+    property.merge({
+      type: payload.type,
+      property_use_type: payload.property_use_type,
+      surface: payload.surface,
+      land_size: payload.land_size,
+      year_built: payload.year_built,
+      rooms: payload.rooms,
+      bathrooms: payload.bathrooms,
+      security_deposit: payload.security_deposit,
+      deposit_months: payload.deposit_months,
+      price: payload.price,
+      capacity: payload.rooms || property.capacity || 1,
+    })
+    await property.save()
+
+    return response.ok({
+      message: 'Étape 6 mise à jour avec succès',
+      data: { property, step: 6 },
+    })
+  }
+
+  private async handleUpdateStep7(request: any, response: HttpContext['response'], property: Property) {
+    const payload = await request.validateUsing(Step7ContactValidator)
+    
+    property.merge({
+      contact_phone: payload.contact_phone,
+      additional_info: payload.additional_info,
+    })
+    await property.save()
+
+    return response.ok({
+      message: 'Étape 7 mise à jour avec succès',
+      data: { property, step: 7 },
+    })
+  }
+
+  private async handleUpdateStep8(request: any, response: HttpContext['response'], property: Property) {
+    const logger = (await import('@adonisjs/core/services/logger')).default
+    logger.info(`📝 [PROPERTY UPDATE STEP 8] Début - property id: ${property.id}`)
+
+    const payload = await request.validateUsing(Step8PhotosAmenitiesValidator)
+    
+    logger.info(`📝 [PROPERTY UPDATE STEP 8] Validation réussie - ${payload.photos.length} photos, ${payload.amenities?.length || 0} commodités`)
+
+    // Supprimer les anciennes photos
+    await PropertyPhoto.query().where('property_id', property.id).delete()
+
+    // Ajouter les nouvelles photos
+    for (let i = 0; i < payload.photos.length; i++) {
+      const photoFile = payload.photos[i]
+      await photoFile.move(app.makePath('uploads/properties'))
+      const fileName = photoFile.fileName
+
+      await PropertyPhoto.create({
+        property_id: property.id,
+        photo_url: fileName,
+        display_order: i,
+        is_main: i === 0,
+      })
+
+      if (i === 0) {
+        property.mainPhotoUrl = fileName
+      }
+    }
+
+    // Traiter les commodités
+    const amenitiesList: string[] = Array.isArray(payload.amenities) ? payload.amenities : []
+    if (amenitiesList.length > 0) {
+      await PropertyAmenity.query().where('property_id', property.id).delete()
+      for (const amenityName of amenitiesList) {
+        await PropertyAmenity.create({
+          property_id: property.id,
+          name: amenityName,
+        })
+      }
+    }
+
+    await property.save()
+    await property.load('photos')
+    await property.load('amenities')
+
+    return response.ok({
+      message: 'Étape 8 mise à jour avec succès',
       data: property,
     })
   }
@@ -745,7 +973,15 @@ export default class PropertiesController {
     if (property.user_id !== user.id)
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
 
+    // Supprimer les photos associées
+    await PropertyPhoto.query().where('property_id', property.id).delete()
+    
+    // Supprimer les commodités associées
+    await PropertyAmenity.query().where('property_id', property.id).delete()
+
+    // Supprimer la propriété
     await property.delete()
+    
     return response.ok({ message: 'Logement supprimé avec succès' })
   }
 

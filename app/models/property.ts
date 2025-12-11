@@ -68,6 +68,9 @@ export default class Property extends BaseModel {
   declare available_from?: DateTime
 
   @column()
+  declare available_time?: string
+
+  @column()
   declare rental_reason?: string
 
   @column()
