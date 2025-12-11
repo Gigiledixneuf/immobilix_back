@@ -42,6 +42,7 @@ export default class extends BaseSchema {
       table.dropColumn('state')
       table.dropColumn('postal_code')
       table.dropColumn('available_from')
+      table.dropColumn('available_time')
       table.dropColumn('rental_reason')
       table.dropColumn('rental_reason_other')
       table.dropColumn('property_use_type')
