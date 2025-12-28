@@ -26,6 +26,7 @@ const ForgotPasswordsController = () => import('#controllers/Auth/forgot_passwor
 const NotificationsController = () => import('#controllers/notifications_controller')
 const InvoicesController = () => import('#controllers/invoices_controller')
 const DashboardController = () => import('#controllers/Bailleur/dashboard_controller')
+const SearchesController = () => import('#controllers/searches_controller')
 
 router.get('/', async () => {
   return {
@@ -187,6 +188,7 @@ router
     router.delete('/visit-requests/:id', [VisitRequestsController, 'destroy'])
     router.get('/profile', [ProfilesController, 'show'])
     router.put('/profile', [ProfilesController, 'update'])
+    router.post('/profile/add-role', [ProfilesController, 'addRole'])
     router.post('/payments', [PaymentsController, 'store'])
     router.get('/contracts/:id/payments', [PaymentsController, 'history'])
     router.post('/invites', [InvitesController, 'store'])
@@ -204,6 +206,12 @@ router
     router.put('/invoices/:id/cancel', [InvoicesController, 'cancel'])
     // Route pour le dashboard du bailleur
     router.get('/dashboard', [DashboardController, 'index'])
+    // Routes pour les recherches (vues récentes et favoris)
+    router.get('/search/recently-viewed', [SearchesController, 'recentlyViewed'])
+    router.get('/search/favorites', [SearchesController, 'favorites'])
+    router.post('/search/favorites/:propertyId', [SearchesController, 'addFavorite'])
+    router.delete('/search/favorites/:propertyId', [SearchesController, 'removeFavorite'])
+    router.get('/search/favorites/:propertyId/check', [SearchesController, 'checkFavorite'])
   })
   .prefix('/api')
   .middleware([middleware.auth()])

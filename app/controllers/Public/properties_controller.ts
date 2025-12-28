@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import Property from '#models/property'
 import Review from '#models/review'
+import PropertyView from '#models/property_view'
 
 export default class PublicPropertiesController {
   /**
@@ -196,7 +197,7 @@ export default class PublicPropertiesController {
    * Display a single property with full details.
    * GET /api/public/properties/:id
    */
-  async show({ params, response }: HttpContext) {
+  async show({ params, response, auth }: HttpContext) {
     try {
       let query = Property.query()
         .where('id', params.id)
@@ -241,6 +242,33 @@ export default class PublicPropertiesController {
         totalReviews = 0
         averageRating = 0
         reviewsList = []
+      }
+
+      // Tracker la vue si l'utilisateur est authentifié
+      try {
+        const user = auth.user
+        if (user) {
+          // Vérifier si une vue existe déjà aujourd'hui pour éviter les doublons
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          const todayISO = today.toISOString()
+
+          const existingView = await PropertyView.query()
+            .where('user_id', user.id)
+            .where('property_id', property.id)
+            .where('created_at', '>=', todayISO)
+            .first()
+
+          if (!existingView) {
+            await PropertyView.create({
+              userId: user.id,
+              propertyId: property.id,
+            })
+          }
+        }
+      } catch (viewError) {
+        // Ne pas faire échouer la requête si le tracking échoue
+        console.log(`Could not track property view: ${viewError}`)
       }
 
     // Formater l'URL de l'image
