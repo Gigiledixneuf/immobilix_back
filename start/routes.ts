@@ -15,6 +15,7 @@ const PaymentsController = () => import('#controllers/payments_controller')
 const PropertiesController = () => import('#controllers/Bailleur/properties_controller')
 const ApplicationsController = () => import('#controllers/applications_controller')
 const VisitRequestsController = () => import('#controllers/VisitRequestsController')
+const PropertyQuestionsController = () => import('#controllers/PropertyQuestionsController')
 const InvitesController = () => import('#controllers/invites_controller')
 const PublicPropertiesController = () => import('#controllers/Public/properties_controller')
 const ProfilesController = () => import('#controllers/profiles_controller')
@@ -27,6 +28,7 @@ const NotificationsController = () => import('#controllers/notifications_control
 const InvoicesController = () => import('#controllers/invoices_controller')
 const DashboardController = () => import('#controllers/Bailleur/dashboard_controller')
 const SearchesController = () => import('#controllers/searches_controller')
+const MessagesController = () => import('#controllers/messages_controller')
 
 router.get('/', async () => {
   return {
@@ -186,6 +188,10 @@ router
     router.get('/visit-requests/me', [VisitRequestsController, 'myRequests'])
     router.patch('/visit-requests/:id/status', [VisitRequestsController, 'updateStatus'])
     router.delete('/visit-requests/:id', [VisitRequestsController, 'destroy'])
+    // Routes pour les questions sur les propriétés
+    router.post('/properties/:id/questions', [PropertyQuestionsController, 'store'])
+    router.get('/properties/:id/questions', [PropertyQuestionsController, 'index'])
+    router.patch('/properties/questions/:id/answer', [PropertyQuestionsController, 'answer'])
     router.get('/profile', [ProfilesController, 'show'])
     router.put('/profile', [ProfilesController, 'update'])
     router.post('/profile/add-role', [ProfilesController, 'addRole'])
@@ -212,6 +218,11 @@ router
     router.post('/search/favorites/:propertyId', [SearchesController, 'addFavorite'])
     router.delete('/search/favorites/:propertyId', [SearchesController, 'removeFavorite'])
     router.get('/search/favorites/:propertyId/check', [SearchesController, 'checkFavorite'])
+    // Routes pour les messages
+    router.get('/conversations', [MessagesController, 'index'])
+    router.get('/conversations/:id/messages', [MessagesController, 'getMessages'])
+    router.post('/messages', [MessagesController, 'store'])
+    router.patch('/messages/:id/read', [MessagesController, 'markAsRead'])
   })
   .prefix('/api')
   .middleware([middleware.auth()])
