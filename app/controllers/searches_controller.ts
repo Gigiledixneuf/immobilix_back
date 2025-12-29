@@ -16,19 +16,19 @@ export default class SearchesController {
 
     try {
       // Récupérer les vues récentes (30 derniers jours, max 50)
-      const thirtyDaysAgo = new Date()
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+      const { DateTime } = await import('luxon')
+      const thirtyDaysAgo = DateTime.now().minus({ days: 30 })
 
       const views = await PropertyView.query()
-        .where('user_id', user.id)
-        .where('created_at', '>=', thirtyDaysAgo.toISOString())
+        .where('userId', user.id)
+        .where('createdAt', '>=', thirtyDaysAgo.toSQL())
         .preload('property', (query) => {
           query.preload('user', (userQuery) => {
             userQuery.select(['id', 'fullName', 'email', 'portable'])
           })
           query.preload('photos')
         })
-        .orderBy('created_at', 'desc')
+        .orderBy('createdAt', 'desc')
         .limit(50)
 
       // Grouper par propriété et garder seulement la vue la plus récente
@@ -88,14 +88,18 @@ export default class SearchesController {
         }
       })
 
+      console.log(`Found ${formattedProperties.length} recently viewed properties for user ${user.id}`)
+      
       return response.ok({
         data: formattedProperties,
         count: formattedProperties.length,
       })
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error in SearchesController.recentlyViewed:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération des propriétés consultées récemment',
-        error: error.message,
+        error: error.message || 'Unknown error',
+        stack: error.stack,
       })
     }
   }

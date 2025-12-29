@@ -246,29 +246,55 @@ export default class PublicPropertiesController {
 
       // Tracker la vue si l'utilisateur est authentifié
       try {
-        const user = auth.user
-        if (user) {
-          // Vérifier si une vue existe déjà aujourd'hui pour éviter les doublons
-          const today = new Date()
-          today.setHours(0, 0, 0, 0)
-          const todayISO = today.toISOString()
+        // Vérifier si l'utilisateur est authentifié (même pour les routes publiques)
+        // Utiliser auth.use('api') pour forcer la vérification du token API
+        const apiAuth = auth.use('api')
+        const isAuthenticated = await apiAuth.check()
+        
+        if (isAuthenticated) {
+          const user = apiAuth.user
+          if (user) {
+            console.log(`Attempting to track view for user ${user.id}, property ${property.id}`)
+            
+            // Vérifier si une vue existe déjà aujourd'hui pour éviter les doublons
+            const { DateTime } = await import('luxon')
+            const today = DateTime.now().startOf('day')
+            const tomorrow = today.plus({ days: 1 })
 
-          const existingView = await PropertyView.query()
-            .where('user_id', user.id)
-            .where('property_id', property.id)
-            .where('created_at', '>=', todayISO)
-            .first()
+            const existingView = await PropertyView.query()
+              .where('userId', user.id)
+              .where('propertyId', property.id)
+              .where('createdAt', '>=', today.toSQL())
+              .where('createdAt', '<', tomorrow.toSQL())
+              .first()
 
-          if (!existingView) {
-            await PropertyView.create({
-              userId: user.id,
-              propertyId: property.id,
-            })
+            if (!existingView) {
+              try {
+                const newView = await PropertyView.create({
+                  userId: user.id,
+                  propertyId: property.id,
+                })
+                console.log(`✅ Property view tracked successfully: user ${user.id}, property ${property.id}, view ID ${newView.id}`)
+              } catch (createError: any) {
+                console.error(`❌ Failed to create property view: ${createError?.message || createError}`, createError?.stack)
+                // Si c'est une erreur de contrainte unique, c'est OK (vue déjà créée)
+                if (createError?.code !== 'ER_DUP_ENTRY' && createError?.code !== 1062) {
+                  throw createError
+                }
+                console.log(`⚠️ Duplicate view detected (already exists): user ${user.id}, property ${property.id}`)
+              }
+            } else {
+              console.log(`ℹ️ Property view already exists for today: user ${user.id}, property ${property.id}, view ID ${existingView.id}`)
+            }
+          } else {
+            console.log(`⚠️ auth.use('api').check() returned true but auth.use('api').user is null for property ${property.id}`)
           }
+        } else {
+          console.log(`⚠️ User not authenticated (auth.use('api').check() = false), skipping view tracking for property ${property.id}`)
         }
-      } catch (viewError) {
+      } catch (viewError: any) {
         // Ne pas faire échouer la requête si le tracking échoue
-        console.log(`Could not track property view: ${viewError}`)
+        console.error(`❌ Could not track property view: ${viewError?.message || viewError}`, viewError?.stack)
       }
 
     // Formater l'URL de l'image

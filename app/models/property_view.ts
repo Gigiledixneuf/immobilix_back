@@ -8,10 +8,10 @@ export default class PropertyView extends BaseModel {
   @column({ isPrimary: true })
   declare id: number
 
-  @column()
+  @column({ columnName: 'property_id' })
   declare propertyId: number
 
-  @column()
+  @column({ columnName: 'user_id' })
   declare userId: number
 
   @column.dateTime({ autoCreate: true })
@@ -20,9 +20,9 @@ export default class PropertyView extends BaseModel {
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 
-  @belongsTo(() => Property)
+  @belongsTo(() => Property, { foreignKey: 'propertyId' })
   declare property: BelongsTo<typeof Property>
 
-  @belongsTo(() => User)
+  @belongsTo(() => User, { foreignKey: 'userId' })
   declare user: BelongsTo<typeof User>
 }
