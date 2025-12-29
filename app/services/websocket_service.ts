@@ -338,7 +338,12 @@ export default class WebSocketService {
       this.wss.close()
       this.wss = null
       this.connectedUsers.clear()
-      logger.info('WebSocket service closed')
+      // Utiliser console au lieu de logger car le logger peut ne pas être disponible pendant le shutdown
+      try {
+        logger.info('WebSocket service closed')
+      } catch {
+        console.log('WebSocket service closed')
+      }
     }
   }
 }
