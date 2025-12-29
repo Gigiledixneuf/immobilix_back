@@ -12,28 +12,37 @@ export default class FcmTokensController {
 
     const payload = await request.validateUsing(fcmTokenValidator)
 
-    // Vérifier si le token existe déjà pour cet utilisateur
-    let fcmToken = await FcmToken.query()
-      .where('user_id', user.id)
-      .where('token', payload.token)
-      .first()
+    const db = (await import('@adonisjs/lucid/services/db')).default
 
-    if (fcmToken) {
-      // Mettre à jour le token existant
-      fcmToken.deviceId = payload.deviceId || fcmToken.deviceId
-      fcmToken.deviceType = payload.deviceType || fcmToken.deviceType
-      fcmToken.isActive = true
-      await fcmToken.save()
-    } else {
-      // Créer un nouveau token
-      fcmToken = await FcmToken.create({
-        userId: user.id,
-        token: payload.token,
-        deviceId: payload.deviceId || null,
-        deviceType: payload.deviceType || null,
-        isActive: true,
-      })
-    }
+    // Utiliser une transaction pour éviter les conditions de course
+    const fcmToken = await db.transaction(async (trx) => {
+      // Chercher le token dans la transaction
+      let existingToken = await FcmToken.query({ client: trx })
+        .where('token', payload.token)
+        .first()
+
+      if (existingToken) {
+        // Mettre à jour le token existant
+        existingToken.userId = user.id
+        existingToken.deviceId = payload.deviceId || existingToken.deviceId
+        existingToken.deviceType = payload.deviceType || existingToken.deviceType
+        existingToken.isActive = true
+        await existingToken.useTransaction(trx).save()
+        return existingToken
+      } else {
+        // Créer un nouveau token dans la transaction
+        return await FcmToken.create(
+          {
+            userId: user.id,
+            token: payload.token,
+            deviceId: payload.deviceId || null,
+            deviceType: payload.deviceType || null,
+            isActive: true,
+          },
+          { client: trx }
+        )
+      }
+    })
 
     return response.created({
       message: 'Token FCM enregistré avec succès',
