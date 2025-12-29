@@ -27,5 +27,16 @@ export default await Env.create(new URL('../', import.meta.url), {
   DB_PORT: Env.schema.number(),
   DB_USER: Env.schema.string(),
   DB_PASSWORD: Env.schema.string.optional(),
-  DB_DATABASE: Env.schema.string()
+  DB_DATABASE: Env.schema.string(),
+
+  /*
+  |----------------------------------------------------------
+  | Variables for Firebase Cloud Messaging (FCM)
+  |----------------------------------------------------------
+  */
+  FIREBASE_PROJECT_ID: Env.schema.string.optional(),
+  FIREBASE_PRIVATE_KEY: Env.schema.string.optional(),
+  FIREBASE_CLIENT_EMAIL: Env.schema.string.optional(),
+  // Alternative: chemin vers le fichier JSON de credentials Firebase
+  FIREBASE_CREDENTIALS_PATH: Env.schema.string.optional(),
 })
