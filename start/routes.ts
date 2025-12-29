@@ -221,6 +221,7 @@ router
     router.get('/search/favorites/:propertyId/check', [SearchesController, 'checkFavorite'])
     // Routes pour les messages
     router.get('/conversations', [MessagesController, 'index'])
+    router.get('/conversations/unread-count', [MessagesController, 'unreadCount'])
     router.get('/conversations/:id/messages', [MessagesController, 'getMessages'])
     router.post('/messages', [MessagesController, 'store'])
     router.patch('/messages/:id/read', [MessagesController, 'markAsRead'])
