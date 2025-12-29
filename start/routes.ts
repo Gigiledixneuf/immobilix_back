@@ -14,15 +14,21 @@ const ContractsController = () => import('#controllers/contracts_controller')
 const PaymentsController = () => import('#controllers/payments_controller')
 const PropertiesController = () => import('#controllers/Bailleur/properties_controller')
 const ApplicationsController = () => import('#controllers/applications_controller')
+const VisitRequestsController = () => import('#controllers/VisitRequestsController')
+const PropertyQuestionsController = () => import('#controllers/PropertyQuestionsController')
 const InvitesController = () => import('#controllers/invites_controller')
 const PublicPropertiesController = () => import('#controllers/Public/properties_controller')
 const ProfilesController = () => import('#controllers/profiles_controller')
 const AdminUsersController = () => import('#controllers/Admin/users_controller')
 const LoginController = () => import('#controllers/Auth/login_controller')
 const RegistersController = () => import('#controllers/Auth/registers_controller')
+const LogoutController = () => import('#controllers/Auth/logout_controller')
+const ForgotPasswordsController = () => import('#controllers/Auth/forgot_passwords_controller')
 const NotificationsController = () => import('#controllers/notifications_controller')
 const InvoicesController = () => import('#controllers/invoices_controller')
 const DashboardController = () => import('#controllers/Bailleur/dashboard_controller')
+const SearchesController = () => import('#controllers/searches_controller')
+const MessagesController = () => import('#controllers/messages_controller')
 
 router.get('/', async () => {
   return {
@@ -148,9 +154,22 @@ router.get('/uploads/*', async ({ request, response }) => {
   }
 })
 
+// Route pour WebSocket /notifications (sans /api)
+// Cette route permet au WebSocket de fonctionner, mais retourne une erreur pour les requêtes HTTP normales
+// Le middleware WebSocket intercepte les upgrades avant que cette route ne soit appelée
+router.get('/notifications', async ({ request, response }) => {
+  // Pour les requêtes HTTP normales, retourner une erreur indiquant d'utiliser /api/notifications
+  return response.status(400).json({
+    status: 'error',
+    message: 'Cette route est réservée pour les connexions WebSocket. Utilisez /api/notifications pour les requêtes HTTP.',
+    code: 'WEBSOCKET_ROUTE_ONLY',
+  })
+})
+
 //Routes protégées par authentification
 router
   .group(() => {
+    router.post('logout', [LogoutController, 'logout'])
     router.resource('/properties', PropertiesController)
     router.get('/tenants', [PropertiesController, 'listTenants'])
     router.get('/properties/:id/applications', [ApplicationsController, 'index'])
@@ -163,8 +182,19 @@ router
     router.resource('/contracts', ContractsController)
     router.post('/contracts/:id/pay-deposit', [ContractsController, 'payDeposit'])
     router.post('/properties/:id/apply', [ApplicationsController, 'apply'])
+    // Routes pour les demandes de visite
+    router.post('/properties/:id/visit-requests', [VisitRequestsController, 'store'])
+    router.get('/properties/:id/visit-requests', [VisitRequestsController, 'index'])
+    router.get('/visit-requests/me', [VisitRequestsController, 'myRequests'])
+    router.patch('/visit-requests/:id/status', [VisitRequestsController, 'updateStatus'])
+    router.delete('/visit-requests/:id', [VisitRequestsController, 'destroy'])
+    // Routes pour les questions sur les propriétés
+    router.post('/properties/:id/questions', [PropertyQuestionsController, 'store'])
+    router.get('/properties/:id/questions', [PropertyQuestionsController, 'index'])
+    router.patch('/properties/questions/:id/answer', [PropertyQuestionsController, 'answer'])
     router.get('/profile', [ProfilesController, 'show'])
     router.put('/profile', [ProfilesController, 'update'])
+    router.post('/profile/add-role', [ProfilesController, 'addRole'])
     router.post('/payments', [PaymentsController, 'store'])
     router.get('/contracts/:id/payments', [PaymentsController, 'history'])
     router.post('/invites', [InvitesController, 'store'])
@@ -182,6 +212,17 @@ router
     router.put('/invoices/:id/cancel', [InvoicesController, 'cancel'])
     // Route pour le dashboard du bailleur
     router.get('/dashboard', [DashboardController, 'index'])
+    // Routes pour les recherches (vues récentes et favoris)
+    router.get('/search/recently-viewed', [SearchesController, 'recentlyViewed'])
+    router.get('/search/favorites', [SearchesController, 'favorites'])
+    router.post('/search/favorites/:propertyId', [SearchesController, 'addFavorite'])
+    router.delete('/search/favorites/:propertyId', [SearchesController, 'removeFavorite'])
+    router.get('/search/favorites/:propertyId/check', [SearchesController, 'checkFavorite'])
+    // Routes pour les messages
+    router.get('/conversations', [MessagesController, 'index'])
+    router.get('/conversations/:id/messages', [MessagesController, 'getMessages'])
+    router.post('/messages', [MessagesController, 'store'])
+    router.patch('/messages/:id/read', [MessagesController, 'markAsRead'])
   })
   .prefix('/api')
   .middleware([middleware.auth()])
@@ -197,8 +238,12 @@ router
 // Routes publiques (guest)
 router
   .group(() => {
-    router.post('login', [LoginController, 'login'])
+    // Route login avec rate limiting
+    // Le middleware rateLimit utilise les valeurs par défaut (5 tentatives / 15 min)
+    router.post('login', [LoginController, 'login']).use(middleware.rateLimit())
     router.post('register', [RegistersController, 'register'])
+    router.post('forgot-password', [ForgotPasswordsController, 'requestReset'])
+    router.post('reset-password', [ForgotPasswordsController, 'resetPassword'])
     router.get('public/properties', [PublicPropertiesController, 'index'])
     router.get('public/properties/:id', [PublicPropertiesController, 'show'])
     router.post('webhook/payment', [WebhooksController, 'payment'])

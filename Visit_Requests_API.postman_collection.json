@@ -1,0 +1,310 @@
+{
+  "info": {
+    "name": "Visit Requests API",
+    "description": "Collection pour tester l'API des demandes de visite",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3333",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "property_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "visit_request_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login Locataire",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set(\"token\", jsonData.data.accessToken);",
+                  "    pm.collectionVariables.set(\"token\", jsonData.data.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"locataire1@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "login"]
+            }
+          }
+        },
+        {
+          "name": "Login Bailleur",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.environment.set(\"token\", jsonData.data.accessToken);",
+                  "    pm.collectionVariables.set(\"token\", jsonData.data.accessToken);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"bailleur1@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Visit Requests - Locataire",
+      "item": [
+        {
+          "name": "Créer une demande de visite",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set(\"visit_request_id\", jsonData.data.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requested_date\": \"2024-12-25\",\n  \"requested_time\": \"14:30\",\n  \"message\": \"Je souhaite visiter cette propriété pour voir si elle correspond à mes besoins.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/properties/{{property_id}}/visit-requests",
+              "host": ["{{base_url}}"],
+              "path": ["api", "properties", "{{property_id}}", "visit-requests"]
+            }
+          }
+        },
+        {
+          "name": "Lister mes demandes de visite",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/visit-requests/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "visit-requests", "me"]
+            }
+          }
+        },
+        {
+          "name": "Annuler une demande de visite",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/visit-requests/{{visit_request_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "visit-requests", "{{visit_request_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Visit Requests - Bailleur",
+      "item": [
+        {
+          "name": "Lister les demandes pour une propriété",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/properties/{{property_id}}/visit-requests",
+              "host": ["{{base_url}}"],
+              "path": ["api", "properties", "{{property_id}}", "visit-requests"]
+            }
+          }
+        },
+        {
+          "name": "Accepter une demande de visite",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"accepted\",\n  \"scheduled_at\": \"2024-12-25T14:30:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/visit-requests/{{visit_request_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "visit-requests", "{{visit_request_id}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Refuser une demande de visite",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"rejected\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/visit-requests/{{visit_request_id}}/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "visit-requests", "{{visit_request_id}}", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Tests de validation",
+      "item": [
+        {
+          "name": "Date dans le passé (erreur attendue)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requested_date\": \"2023-01-01\",\n  \"requested_time\": \"14:30\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/properties/{{property_id}}/visit-requests",
+              "host": ["{{base_url}}"],
+              "path": ["api", "properties", "{{property_id}}", "visit-requests"]
+            }
+          }
+        },
+        {
+          "name": "Format de date invalide (erreur attendue)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requested_date\": \"25/12/2024\",\n  \"requested_time\": \"14:30\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/properties/{{property_id}}/visit-requests",
+              "host": ["{{base_url}}"],
+              "path": ["api", "properties", "{{property_id}}", "visit-requests"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

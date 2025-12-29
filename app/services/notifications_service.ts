@@ -1,5 +1,4 @@
 import Notification from '#models/notification'
-import { getWebSocketService } from './websocket_service'
 
 export default class NotificationsService {
   /**
@@ -24,11 +23,16 @@ export default class NotificationsService {
 
     // Envoyer via WebSocket en temps réel
     try {
-      const websocketService = getWebSocketService()
+      // Importer dynamiquement pour éviter les erreurs si le service n'est pas disponible
+      // Utiliser un chemin relatif avec l'extension .js pour ESM
+      const websocketModule = await import('#services/websocket_service')
+      const websocketService = websocketModule.getWebSocketService()
       await websocketService.sendToUser(userId, notification)
-    } catch (error) {
+    } catch (error: any) {
       // Ne pas bloquer si WebSocket échoue (l'utilisateur récupérera la notification à la prochaine connexion)
-      console.error('Error sending notification via WebSocket:', error)
+      // Logger l'erreur mais continuer l'exécution
+      const logger = await import('@adonisjs/core/services/logger')
+      logger.default.warn('Error sending notification via WebSocket:', error?.message || String(error))
     }
 
     // TODO: Brancher FCM pour les push notifications
