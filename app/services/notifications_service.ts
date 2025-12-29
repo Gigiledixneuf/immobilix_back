@@ -63,6 +63,38 @@ export default class NotificationsService {
   }
 
   /**
+   * Envoie une notification push FCM uniquement (sans créer de notification en base)
+   * Utilisé pour les messages qui ne doivent pas apparaître dans la page de notifications
+   */
+  async sendFcmOnly(
+    userId: number,
+    title: string,
+    message: string,
+    data?: Record<string, unknown>
+  ) {
+    try {
+      // Convertir les données en format string pour FCM
+      const fcmData = data
+        ? Object.fromEntries(
+            Object.entries(data).map(([key, value]) => [key, String(value)])
+          )
+        : undefined
+
+      // Ajouter le type dans les données
+      const finalFcmData = {
+        ...fcmData,
+        type: 'message', // Type pour identifier que c'est un message
+      }
+
+      await FirebaseService.sendToUser(userId, title, message, finalFcmData)
+    } catch (error: any) {
+      // Ne pas bloquer si FCM échoue
+      const logger = await import('@adonisjs/core/services/logger')
+      logger.default.warn('Error sending FCM notification:', error?.message || String(error))
+    }
+  }
+
+  /**
    * Notifie un contact via SMS/Email (pour usage futur)
    */
   async notifyContact(
