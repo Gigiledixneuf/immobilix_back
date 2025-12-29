@@ -29,6 +29,7 @@ const InvoicesController = () => import('#controllers/invoices_controller')
 const DashboardController = () => import('#controllers/Bailleur/dashboard_controller')
 const SearchesController = () => import('#controllers/searches_controller')
 const MessagesController = () => import('#controllers/messages_controller')
+const FcmTokensController = () => import('#controllers/fcm_tokens_controller')
 
 router.get('/', async () => {
   return {
@@ -223,6 +224,10 @@ router
     router.get('/conversations/:id/messages', [MessagesController, 'getMessages'])
     router.post('/messages', [MessagesController, 'store'])
     router.patch('/messages/:id/read', [MessagesController, 'markAsRead'])
+    // Routes pour les tokens FCM
+    router.post('/fcm-tokens', [FcmTokensController, 'store'])
+    router.get('/fcm-tokens', [FcmTokensController, 'index'])
+    router.delete('/fcm-tokens/:token', [FcmTokensController, 'destroy'])
   })
   .prefix('/api')
   .middleware([middleware.auth()])
