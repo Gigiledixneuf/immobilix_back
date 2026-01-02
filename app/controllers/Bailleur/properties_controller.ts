@@ -18,6 +18,8 @@ import app from '@adonisjs/core/services/app'
 import Contract from '#models/contract'
 import User from '#models/user'
 import { DateTime } from 'luxon'
+import { PropertyPhotoService } from '#services/property_photo_service'
+import { ImageProcessingService } from '#services/image_processing_service'
 
 export default class PropertiesController {
   /**
@@ -499,28 +501,87 @@ export default class PropertiesController {
     
     logger.info(`📝 [PROPERTY STEP 8] Validation réussie - ${payload.photos.length} photos, ${payload.amenities?.length || 0} commodités`)
 
-    // Traiter les photos
+    // Traiter les photos avec compression et optimisation
     const photoFiles = payload.photos
     const uploadedPhotos: PropertyPhoto[] = []
 
-    for (let i = 0; i < photoFiles.length; i++) {
-      const photoFile = photoFiles[i]
-      await photoFile.move(app.makePath('uploads/properties'))
-      const fileName = photoFile.fileName
+    // S'assurer que le dossier de la propriété existe
+    await PropertyPhotoService.ensurePropertyFolderExists(property.id)
 
-      const photo = await PropertyPhoto.create({
-        property_id: property.id,
-        photo_url: fileName,
-        display_order: i,
-        is_main: i === 0, // La première photo est la photo principale
-      })
+    try {
+      for (let i = 0; i < photoFiles.length; i++) {
+        const photoFile = photoFiles[i]
+        
+        // 1. Valider la taille du fichier
+        const isValidSize = await ImageProcessingService.validateFileSize(photoFile.tmpPath!)
+        if (!isValidSize) {
+          throw new Error(
+            `L'image ${i + 1} est trop grande. Taille maximale autorisée: 5MB`
+          )
+        }
 
-      uploadedPhotos.push(photo)
+        // 2. Générer les noms de fichiers (standard + thumbnail)
+        const standardFileName = `img_${i + 1}.jpg`
+        const thumbnailFileName = `thumb_${i + 1}.jpg`
 
-      // Mettre à jour mainPhotoUrl si c'est la première photo
-      if (i === 0) {
-        property.mainPhotoUrl = fileName
+        // 3. Chemins complets
+        const propertyFolderPath = PropertyPhotoService.getPropertyFolderFullPath(property.id)
+        const tempFilePath = photoFile.tmpPath!
+        const standardFilePath = PropertyPhotoService.getPhotoFullPath(property.id, standardFileName)
+        const thumbnailFilePath = PropertyPhotoService.getPhotoFullPath(property.id, thumbnailFileName)
+
+        // 4. Traiter l'image : compression + redimensionnement + suppression EXIF
+        try {
+          await ImageProcessingService.processImageWithThumbnail(
+            tempFilePath,
+            standardFilePath,
+            thumbnailFilePath
+          )
+        } catch (processError: any) {
+          logger.error(
+            `[PROPERTY STEP 8] Erreur lors du traitement de l'image ${i + 1}: ${processError.message}`
+          )
+          throw new Error(
+            `Erreur lors du traitement de l'image ${i + 1}: ${processError.message || "Format d'image non supporté ou corrompu"}`
+          )
+        }
+
+        // 5. Stocker le chemin relatif dans la base de données (format standard)
+        // Format: properties/property_<propertyId>/img_<index>.jpg
+        const photoRelativePath = `${PropertyPhotoService.getPropertyFolderPath(property.id)}/${standardFileName}`
+
+        const photo = await PropertyPhoto.create({
+          property_id: property.id,
+          photo_url: photoRelativePath, // Stocker le chemin relatif complet
+          display_order: i,
+          is_main: i === 0, // La première photo est la photo principale
+        })
+
+        uploadedPhotos.push(photo)
+
+        // Mettre à jour mainPhotoUrl si c'est la première photo
+        if (i === 0) {
+          property.mainPhotoUrl = photoRelativePath
+        }
       }
+    } catch (error: any) {
+      // En cas d'erreur, nettoyer les fichiers partiellement uploadés
+      logger.error(`[PROPERTY STEP 8] Erreur lors du traitement des photos: ${error.message}`)
+      
+      // Supprimer les photos déjà uploadées
+      for (const uploadedPhoto of uploadedPhotos) {
+        try {
+          await uploadedPhoto.delete()
+        } catch {
+          // Ignorer les erreurs de suppression
+        }
+      }
+
+      // Retourner une erreur claire
+      return response.badRequest({
+        message: error.message || 'Erreur lors du traitement des images',
+        code: 'IMAGE_PROCESSING_ERROR',
+      })
     }
 
     // Traiter les commodités
@@ -602,24 +663,93 @@ export default class PropertiesController {
       creation_step: 8,
     })
 
-    // Traiter les photos
+    // Traiter les photos avec compression et optimisation
     const photoFiles = payload.photos
-    for (let i = 0; i < photoFiles.length; i++) {
-      const photoFile = photoFiles[i]
-      await photoFile.move(app.makePath('uploads/properties'))
-      const fileName = photoFile.fileName
+    
+    // S'assurer que le dossier de la propriété existe
+    await PropertyPhotoService.ensurePropertyFolderExists(property.id)
+    
+    const uploadedPhotos: PropertyPhoto[] = []
+    
+    try {
+      for (let i = 0; i < photoFiles.length; i++) {
+        const photoFile = photoFiles[i]
+        
+        // 1. Valider la taille du fichier
+        const isValidSize = await ImageProcessingService.validateFileSize(photoFile.tmpPath!)
+        if (!isValidSize) {
+          throw new Error(
+            `L'image ${i + 1} est trop grande. Taille maximale autorisée: 5MB`
+          )
+        }
 
-      await PropertyPhoto.create({
-        property_id: property.id,
-        photo_url: fileName,
-        display_order: i,
-        is_main: i === 0,
-      })
+        // 2. Générer les noms de fichiers (standard + thumbnail)
+        const standardFileName = `img_${i + 1}.jpg`
+        const thumbnailFileName = `thumb_${i + 1}.jpg`
 
-      if (i === 0) {
-        property.mainPhotoUrl = fileName
-        await property.save()
+        // 3. Chemins complets
+        const tempFilePath = photoFile.tmpPath!
+        const standardFilePath = PropertyPhotoService.getPhotoFullPath(property.id, standardFileName)
+        const thumbnailFilePath = PropertyPhotoService.getPhotoFullPath(property.id, thumbnailFileName)
+
+        // 4. Traiter l'image : compression + redimensionnement + suppression EXIF
+        try {
+          await ImageProcessingService.processImageWithThumbnail(
+            tempFilePath,
+            standardFilePath,
+            thumbnailFilePath
+          )
+        } catch (processError: any) {
+          logger.error(
+            `[PROPERTY COMPLETE] Erreur lors du traitement de l'image ${i + 1}: ${processError.message}`
+          )
+          throw new Error(
+            `Erreur lors du traitement de l'image ${i + 1}: ${processError.message || "Format d'image non supporté ou corrompu"}`
+          )
+        }
+
+        // 5. Stocker le chemin relatif dans la base de données
+        const photoRelativePath = `${PropertyPhotoService.getPropertyFolderPath(property.id)}/${standardFileName}`
+
+        const photo = await PropertyPhoto.create({
+          property_id: property.id,
+          photo_url: photoRelativePath,
+          display_order: i,
+          is_main: i === 0,
+        })
+
+        uploadedPhotos.push(photo)
+
+        if (i === 0) {
+          property.mainPhotoUrl = photoRelativePath
+          await property.save()
+        }
       }
+    } catch (error: any) {
+      // En cas d'erreur, nettoyer les fichiers partiellement uploadés et la propriété
+      const logger = (await import('@adonisjs/core/services/logger')).default
+      logger.error(`[PROPERTY COMPLETE] Erreur lors du traitement des photos: ${error.message}`)
+      
+      // Supprimer les photos déjà uploadées
+      for (const uploadedPhoto of uploadedPhotos) {
+        try {
+          await uploadedPhoto.delete()
+        } catch {
+          // Ignorer les erreurs de suppression
+        }
+      }
+      
+      // Supprimer la propriété créée
+      try {
+        await property.delete()
+      } catch {
+        // Ignorer si la propriété n'a pas pu être supprimée
+      }
+
+      return response.badRequest({
+        message: error.message || 'Erreur lors du traitement des images',
+        code: 'IMAGE_PROCESSING_ERROR',
+      })
     }
 
     // Traiter les commodités
@@ -918,25 +1048,127 @@ export default class PropertiesController {
     
     logger.info(`📝 [PROPERTY UPDATE STEP 8] Validation réussie - ${payload.photos.length} photos, ${payload.amenities?.length || 0} commodités`)
 
-    // Supprimer les anciennes photos
+    // Supprimer les anciennes photos (fichiers physiques et enregistrements DB)
+    const oldPhotos = await PropertyPhoto.query().where('property_id', property.id)
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    
+    for (const oldPhoto of oldPhotos) {
+      try {
+        // Construire le chemin complet du fichier
+        let filePath: string
+        if (oldPhoto.photo_url.includes('/')) {
+          // Nouveau format: properties/property_<id>/img_1.jpg
+          filePath = app.makePath('uploads', oldPhoto.photo_url)
+        } else {
+          // Ancien format: juste le nom du fichier
+          filePath = app.makePath('uploads/properties', oldPhoto.photo_url)
+        }
+        
+        // Supprimer le fichier standard s'il existe
+        try {
+          await fs.unlink(filePath)
+          logger.info(`📝 [PROPERTY UPDATE STEP 8] Fichier supprimé: ${filePath}`)
+        } catch (unlinkError: any) {
+          // Ignorer si le fichier n'existe pas
+          if (unlinkError.code !== 'ENOENT') {
+            logger.warn(`📝 [PROPERTY UPDATE STEP 8] Erreur lors de la suppression du fichier ${filePath}: ${unlinkError.message}`)
+          }
+        }
+
+        // Supprimer le thumbnail correspondant si il existe (format: thumb_1.jpg)
+        try {
+          const fileName = PropertyPhotoService.extractFileName(oldPhoto.photo_url)
+          const thumbnailFileName = fileName.replace('img_', 'thumb_')
+          const thumbnailPath = app.makePath('uploads', oldPhoto.photo_url.replace(fileName, thumbnailFileName))
+          await fs.unlink(thumbnailPath).catch(() => {}) // Ignorer si le thumbnail n'existe pas
+        } catch {
+          // Ignorer les erreurs de suppression du thumbnail
+        }
+      } catch (error: any) {
+        logger.warn(`📝 [PROPERTY UPDATE STEP 8] Erreur lors du traitement de la photo ${oldPhoto.id}: ${error.message}`)
+      }
+    }
+    
+    // Supprimer les enregistrements de la base de données
     await PropertyPhoto.query().where('property_id', property.id).delete()
 
-    // Ajouter les nouvelles photos
-    for (let i = 0; i < payload.photos.length; i++) {
-      const photoFile = payload.photos[i]
-      await photoFile.move(app.makePath('uploads/properties'))
-      const fileName = photoFile.fileName
+    // S'assurer que le dossier de la propriété existe
+    await PropertyPhotoService.ensurePropertyFolderExists(property.id)
 
-      await PropertyPhoto.create({
-        property_id: property.id,
-        photo_url: fileName,
-        display_order: i,
-        is_main: i === 0,
-      })
+    // Ajouter les nouvelles photos avec compression et optimisation
+    const uploadedPhotos: PropertyPhoto[] = []
+    
+    try {
+      for (let i = 0; i < payload.photos.length; i++) {
+        const photoFile = payload.photos[i]
+        
+        // 1. Valider la taille du fichier
+        const isValidSize = await ImageProcessingService.validateFileSize(photoFile.tmpPath!)
+        if (!isValidSize) {
+          throw new Error(
+            `L'image ${i + 1} est trop grande. Taille maximale autorisée: 5MB`
+          )
+        }
 
-      if (i === 0) {
-        property.mainPhotoUrl = fileName
+        // 2. Générer les noms de fichiers (standard + thumbnail)
+        const standardFileName = `img_${i + 1}.jpg`
+        const thumbnailFileName = `thumb_${i + 1}.jpg`
+
+        // 3. Chemins complets
+        const tempFilePath = photoFile.tmpPath!
+        const standardFilePath = PropertyPhotoService.getPhotoFullPath(property.id, standardFileName)
+        const thumbnailFilePath = PropertyPhotoService.getPhotoFullPath(property.id, thumbnailFileName)
+
+        // 4. Traiter l'image : compression + redimensionnement + suppression EXIF
+        try {
+          await ImageProcessingService.processImageWithThumbnail(
+            tempFilePath,
+            standardFilePath,
+            thumbnailFilePath
+          )
+        } catch (processError: any) {
+          logger.error(
+            `[PROPERTY UPDATE STEP 8] Erreur lors du traitement de l'image ${i + 1}: ${processError.message}`
+          )
+          throw new Error(
+            `Erreur lors du traitement de l'image ${i + 1}: ${processError.message || "Format d'image non supporté ou corrompu"}`
+          )
+        }
+
+        // 5. Stocker le chemin relatif dans la base de données
+        const photoRelativePath = `${PropertyPhotoService.getPropertyFolderPath(property.id)}/${standardFileName}`
+
+        const photo = await PropertyPhoto.create({
+          property_id: property.id,
+          photo_url: photoRelativePath,
+          display_order: i,
+          is_main: i === 0,
+        })
+
+        uploadedPhotos.push(photo)
+
+        if (i === 0) {
+          property.mainPhotoUrl = photoRelativePath
+        }
       }
+    } catch (error: any) {
+      // En cas d'erreur, nettoyer les fichiers partiellement uploadés
+      logger.error(`[PROPERTY UPDATE STEP 8] Erreur lors du traitement des photos: ${error.message}`)
+      
+      // Supprimer les photos déjà uploadées
+      for (const uploadedPhoto of uploadedPhotos) {
+        try {
+          await uploadedPhoto.delete()
+        } catch {
+          // Ignorer les erreurs de suppression
+        }
+      }
+
+      return response.badRequest({
+        message: error.message || 'Erreur lors du traitement des images',
+        code: 'IMAGE_PROCESSING_ERROR',
+      })
     }
 
     // Traiter les commodités
@@ -973,8 +1205,49 @@ export default class PropertiesController {
     if (property.user_id !== user.id)
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
 
-    // Supprimer les photos associées
+    // Supprimer les photos associées (fichiers physiques et enregistrements DB)
+    const photos = await PropertyPhoto.query().where('property_id', property.id)
+    const fs = await import('node:fs/promises')
+    
+    for (const photo of photos) {
+      try {
+        // Construire le chemin complet du fichier
+        let filePath: string
+        if (photo.photo_url.includes('/')) {
+          // Nouveau format: properties/property_<id>/img_1.jpg
+          filePath = app.makePath('uploads', photo.photo_url)
+        } else {
+          // Ancien format: juste le nom du fichier
+          filePath = app.makePath('uploads/properties', photo.photo_url)
+        }
+        
+        // Supprimer le fichier s'il existe
+        try {
+          await fs.unlink(filePath)
+        } catch (unlinkError: any) {
+          // Ignorer si le fichier n'existe pas
+          if (unlinkError.code !== 'ENOENT') {
+            console.warn(`Erreur lors de la suppression du fichier ${filePath}: ${unlinkError.message}`)
+          }
+        }
+      } catch (error: any) {
+        console.warn(`Erreur lors du traitement de la photo ${photo.id}: ${error.message}`)
+      }
+    }
+    
+    // Supprimer les enregistrements de la base de données
     await PropertyPhoto.query().where('property_id', property.id).delete()
+    
+    // Supprimer le dossier de la propriété s'il existe (nouveau format)
+    try {
+      const propertyFolderPath = PropertyPhotoService.getPropertyFolderFullPath(property.id)
+      await fs.rmdir(propertyFolderPath, { recursive: true })
+    } catch (rmdirError: any) {
+      // Ignorer si le dossier n'existe pas ou s'il n'est pas vide
+      if (rmdirError.code !== 'ENOENT' && rmdirError.code !== 'ENOTEMPTY') {
+        console.warn(`Erreur lors de la suppression du dossier de la propriété: ${rmdirError.message}`)
+      }
+    }
     
     // Supprimer les commodités associées
     await PropertyAmenity.query().where('property_id', property.id).delete()
