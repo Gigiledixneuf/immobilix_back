@@ -2,6 +2,8 @@ import type { HttpContext } from '@adonisjs/core/http'
 import Property from '#models/property'
 import Review from '#models/review'
 import PropertyView from '#models/property_view'
+import PropertyPhoto from '#models/property_photo'
+import { PropertyPhotoService } from '#services/property_photo_service'
 
 export default class PublicPropertiesController {
   /**
@@ -17,7 +19,7 @@ export default class PublicPropertiesController {
    * - minPrice: minimum price filter
    * - maxPrice: maximum price filter
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, auth }: HttpContext) {
     try {
       const page = request.input('page', 1)
       const limit = request.input('limit', 10)
@@ -26,6 +28,10 @@ export default class PublicPropertiesController {
       const type = request.input('type', '')
       const minPrice = request.input('minPrice')
       const maxPrice = request.input('maxPrice')
+
+      // Vérifier si l'utilisateur est authentifié
+      const apiAuth = auth.use('api')
+      const isAuthenticated = await apiAuth.check()
 
       let query = Property.query()
         .preload('user', (userQuery) => {
@@ -136,10 +142,12 @@ export default class PublicPropertiesController {
         // Formater l'URL de l'image si elle existe
         let imageUrl = property.mainPhotoUrl
         if (imageUrl && !imageUrl.startsWith('http')) {
-          // Si l'image est un chemin relatif, construire l'URL complète
-          // S'assurer que le nom du fichier ne contient pas déjà le chemin
-          if (!imageUrl.startsWith('/uploads/')) {
+          // Si c'est un ancien format (juste le nom du fichier), utiliser l'ancien chemin
+          if (!imageUrl.includes('/')) {
             imageUrl = `/uploads/properties/${imageUrl}`
+          } else {
+            // Nouveau format: properties/property_<id>/img_1.jpg
+            imageUrl = `/uploads/${imageUrl}`
           }
         }
 
@@ -156,13 +164,16 @@ export default class PublicPropertiesController {
           description: property.description,
           image: imageUrl,
           createdAt: property.createdAt,
-          // Informations du bailleur (pour contacter)
+          // Informations du bailleur (données publiques uniquement pour visiteurs)
           landlord: property.user
             ? {
                 id: property.user.id,
                 fullName: property.user.fullName,
-                email: property.user.email,
-                phone: property.user.portable,
+                // Email et téléphone uniquement pour utilisateurs authentifiés
+                ...(isAuthenticated && {
+                  email: property.user.email,
+                  phone: property.user.portable,
+                }),
               }
             : null,
           // Avis et commentaires
@@ -203,6 +214,9 @@ export default class PublicPropertiesController {
         .where('id', params.id)
         .preload('user', (userQuery) => {
           userQuery.select(['id', 'fullName', 'email', 'portable'])
+        })
+        .preload('photos', (photoQuery) => {
+          photoQuery.orderBy('display_order', 'asc')
         })
 
       // Essayer de précharger les reviews, mais ne pas échouer si la table n'existe pas
@@ -297,11 +311,42 @@ export default class PublicPropertiesController {
         console.error(`❌ Could not track property view: ${viewError?.message || viewError}`, viewError?.stack)
       }
 
-    // Formater l'URL de l'image
+    // Vérifier si l'utilisateur est authentifié pour exposer les données sensibles
+    const apiAuth = auth.use('api')
+    const isAuthenticated = await apiAuth.check()
+
+    // Formater l'URL de l'image principale
     let imageUrl = property.mainPhotoUrl
     if (imageUrl && !imageUrl.startsWith('http')) {
-      imageUrl = `/uploads/properties/${imageUrl}`
+      // Si c'est un ancien format (juste le nom du fichier), utiliser l'ancien chemin
+      if (!imageUrl.includes('/')) {
+        imageUrl = `/uploads/properties/${imageUrl}`
+      } else {
+        // Nouveau format: properties/property_<id>/img_1.jpg
+        imageUrl = `/uploads/${imageUrl}`
+      }
     }
+
+    // Formater les URLs des photos
+    const photos = property.photos || []
+    const formattedPhotos = photos.map((photo: PropertyPhoto) => {
+      let photoUrl = photo.photo_url
+      if (photoUrl && !photoUrl.startsWith('http')) {
+        // Si c'est un ancien format (juste le nom du fichier), utiliser l'ancien chemin
+        if (!photoUrl.includes('/')) {
+          photoUrl = `/uploads/properties/${photoUrl}`
+        } else {
+          // Nouveau format: properties/property_<id>/img_1.jpg
+          photoUrl = `/uploads/${photoUrl}`
+        }
+      }
+      return {
+        id: photo.id,
+        url: photoUrl,
+        display_order: photo.display_order,
+        is_main: photo.is_main,
+      }
+    })
 
     return response.ok({
       id: property.id,
@@ -315,14 +360,18 @@ export default class PublicPropertiesController {
       price: property.price,
       description: property.description,
       image: imageUrl,
+      photos: formattedPhotos, // Ajouter toutes les photos
       createdAt: property.createdAt,
-      // Informations du bailleur
+      // Informations du bailleur (données publiques uniquement pour visiteurs)
       landlord: property.user
         ? {
             id: property.user.id,
             fullName: property.user.fullName,
-            email: property.user.email,
-            phone: property.user.portable,
+            // Email et téléphone uniquement pour utilisateurs authentifiés
+            ...(isAuthenticated && {
+              email: property.user.email,
+              phone: property.user.portable,
+            }),
           }
         : null,
       // Avis et commentaires complets
@@ -342,6 +391,57 @@ export default class PublicPropertiesController {
       console.error('Error in PublicPropertiesController.show:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération de la propriété',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+
+  /**
+   * Récupère toutes les photos d'une propriété
+   * GET /api/public/properties/:id/photos
+   */
+  async photos({ params, response }: HttpContext) {
+    try {
+      const property = await Property.find(params.id)
+
+      if (!property) {
+        return response.notFound({ message: 'Property not found' })
+      }
+
+      // Charger les photos de la propriété
+      const photos = await PropertyPhoto.query()
+        .where('property_id', property.id)
+        .orderBy('display_order', 'asc')
+
+      // Formater les URLs des photos
+      const formattedPhotos = photos.map((photo) => {
+        let photoUrl = photo.photo_url
+        if (photoUrl && !photoUrl.startsWith('http')) {
+          // Si c'est un ancien format (juste le nom du fichier), utiliser l'ancien chemin
+          if (!photoUrl.includes('/')) {
+            photoUrl = `/uploads/properties/${photoUrl}`
+          } else {
+            // Nouveau format: properties/property_<id>/img_1.jpg
+            photoUrl = `/uploads/${photoUrl}`
+          }
+        }
+        return {
+          id: photo.id,
+          url: photoUrl,
+          display_order: photo.display_order,
+          is_main: photo.is_main,
+        }
+      })
+
+      return response.ok({
+        property_id: property.id,
+        photos: formattedPhotos,
+        total: formattedPhotos.length,
+      })
+    } catch (error) {
+      console.error('Error in PublicPropertiesController.photos:', error)
+      return response.internalServerError({
+        message: 'Erreur lors de la récupération des photos',
         error: error instanceof Error ? error.message : 'Unknown error',
       })
     }
