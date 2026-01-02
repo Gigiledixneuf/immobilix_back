@@ -4,8 +4,14 @@ import Property from '#models/property'
 import VisitRequest, { VisitRequestStatus } from '#models/visit_request'
 import { DateTime } from 'luxon'
 import NotificationsService from '#services/notifications_service'
+import VisitSlotService from '#services/visit_slot_service'
 
 export default class VisitRequestsController {
+  private slotService: VisitSlotService
+
+  constructor() {
+    this.slotService = new VisitSlotService()
+  }
   /**
    * POST /api/properties/:id/visit-requests
    * Créer une demande de visite pour une propriété
@@ -43,10 +49,32 @@ export default class VisitRequestsController {
       return response.badRequest({ message: 'Une demande de visite est déjà en attente pour cette date et heure' })
     }
 
+    // Extraire l'heure au format HH:mm (sans les secondes)
+    const startTime = payload.requested_time.includes(':') && payload.requested_time.split(':').length === 2
+      ? payload.requested_time
+      : payload.requested_time.split(':').slice(0, 2).join(':')
+
     // Convertir l'heure HH:mm en HH:mm:ss pour la base de données
-    const timeWithSeconds = payload.requested_time.includes(':') && payload.requested_time.split(':').length === 2
-      ? `${payload.requested_time}:00`
-      : payload.requested_time
+    const timeWithSeconds = `${startTime}:00`
+
+    // Trouver ou créer le créneau correspondant
+    let timeSlotId: number | null = null
+    try {
+      const slot = await this.slotService.findOrCreateSlot(propertyId, requestedDate, startTime)
+      
+      // Vérifier que le créneau est disponible
+      if (slot.status !== 'available') {
+        return response.badRequest({ 
+          message: 'Ce créneau n\'est plus disponible. Veuillez choisir un autre horaire.' 
+        })
+      }
+
+      timeSlotId = slot.id
+    } catch (error: any) {
+      // Si le créneau n'existe pas ou n'est pas dans les disponibilités, on continue sans créneau
+      // (compatibilité avec l'ancien système)
+      console.warn(`Could not find/create slot: ${error.message}`)
+    }
 
     // Créer la demande de visite
     const visitRequest = await VisitRequest.create({
@@ -56,10 +84,17 @@ export default class VisitRequestsController {
       requestedTime: timeWithSeconds,
       message: payload.message ?? null,
       status: VisitRequestStatus.PENDING,
+      timeSlotId: timeSlotId,
     })
 
-    // Notification au bailleur propriétaire
+    // Charger les relations pour la réponse et la notification
+    await visitRequest.load('property')
+    await visitRequest.load('tenant')
+
+    // Notification au bailleur propriétaire (via notification service qui envoie aussi WebSocket)
     const notifier = new NotificationsService()
+    
+    // Envoyer notification (créée en DB + WebSocket + FCM)
     await notifier.notifyUser(
       property.user_id,
       'Nouvelle demande de visite',
@@ -71,9 +106,38 @@ export default class VisitRequestsController {
       }
     )
 
-    // Charger les relations pour la réponse
-    await visitRequest.load('property')
-    await visitRequest.load('tenant')
+    // Envoyer également un message WebSocket personnalisé pour mise à jour temps réel de la liste
+    setImmediate(async () => {
+      try {
+        const { getWebSocketService } = await import('#services/websocket_service')
+        const websocketService = getWebSocketService()
+        
+        // Envoyer les données de la demande de visite pour mise à jour temps réel
+        await websocketService.sendMessageToUser(property.user_id, {
+          type: 'new_visit_request',
+          visitRequest: {
+            id: visitRequest.id,
+            propertyId: visitRequest.propertyId,
+            tenantId: visitRequest.tenantId,
+            requestedDate: visitRequest.requestedDate.toISODate(),
+            requestedTime: visitRequest.requestedTime,
+            message: visitRequest.message,
+            status: visitRequest.status,
+            createdAt: visitRequest.createdAt.toISO(),
+            tenant: {
+              id: visitRequest.tenant.id,
+              fullName: visitRequest.tenant.fullName,
+              email: visitRequest.tenant.email,
+              portable: visitRequest.tenant.portable,
+              profilePhotoUrl: visitRequest.tenant.profilePhotoUrl,
+            },
+          },
+        })
+      } catch (error: any) {
+        // Logger mais ne pas bloquer
+        console.error('Error sending visit request via WebSocket:', error)
+      }
+    })
 
     return response.created({
       status: 'success',
@@ -105,7 +169,8 @@ export default class VisitRequestsController {
 
     const visitRequests = await VisitRequest.query()
       .where('property_id', propertyId)
-      .preload('tenant', (t) => t.select(['id', 'fullName', 'email', 'portable']))
+      .preload('tenant', (t) => t.select(['id', 'fullName', 'email', 'portable', 'profilePhotoUrl']))
+      .preload('timeSlot')
       .orderBy('requested_date', 'asc')
       .orderBy('requested_time', 'asc')
 
@@ -146,7 +211,8 @@ export default class VisitRequestsController {
         visitRequests = await VisitRequest.query()
           .whereIn('property_id', propertyIds)
           .preload('property', (p) => p.select(['id', 'name', 'address', 'city', 'mainPhotoUrl']))
-          .preload('tenant', (t) => t.select(['id', 'fullName', 'email', 'portable']))
+          .preload('tenant', (t) => t.select(['id', 'fullName', 'email', 'portable', 'profilePhotoUrl']))
+          .preload('timeSlot')
           .orderBy('requested_date', 'asc')
           .orderBy('requested_time', 'asc')
       }
@@ -197,9 +263,45 @@ export default class VisitRequestsController {
     // Mettre à jour le statut
     visitRequest.status = payload.status as VisitRequestStatus
 
-    // Si acceptée, on peut définir la date/heure confirmée
-    if (payload.status === 'accepted' && payload.scheduled_at) {
-      visitRequest.scheduledAt = payload.scheduled_at
+    // Si acceptée, réserver le créneau et définir la date/heure confirmée
+    if (payload.status === 'accepted') {
+      if (payload.scheduled_at) {
+        visitRequest.scheduledAt = payload.scheduled_at
+      } else {
+        // Si pas de scheduled_at fourni, utiliser requestedDate et requestedTime
+        visitRequest.scheduledAt = DateTime.fromISO(
+          `${visitRequest.requestedDate.toISODate()}T${visitRequest.requestedTime}`
+        ).toJSDate()
+      }
+
+      // Si un créneau est associé, le réserver
+      if (visitRequest.timeSlotId) {
+        try {
+          await this.slotService.reserveSlot(
+            visitRequest.propertyId,
+            visitRequest.requestedDate,
+            visitRequest.requestedTime.split(':').slice(0, 2).join(':'),
+            visitRequest.id
+          )
+        } catch (error: any) {
+          // Si le créneau est déjà réservé, retourner une erreur
+          return response.badRequest({
+            status: 'error',
+            message: 'Ce créneau a déjà été réservé par une autre demande',
+          })
+        }
+      }
+    } else if (payload.status === 'rejected' || payload.status === 'cancelled') {
+      // Si refusée ou annulée, libérer le créneau s'il était réservé
+      if (visitRequest.timeSlotId) {
+        try {
+          await this.slotService.releaseSlot(visitRequest.timeSlotId)
+          visitRequest.timeSlotId = null
+        } catch (error: any) {
+          // Log l'erreur mais continue (le créneau peut déjà être libéré)
+          console.warn(`Error releasing slot: ${error.message}`)
+        }
+      }
     }
 
     await visitRequest.save()
@@ -222,6 +324,48 @@ export default class VisitRequestsController {
         visitRequestId: visitRequest.id,
       }
     )
+
+    // Envoyer également un message WebSocket personnalisé pour mise à jour temps réel
+    setImmediate(async () => {
+      try {
+        const { getWebSocketService } = await import('#services/websocket_service')
+        const websocketService = getWebSocketService()
+        
+        // Envoyer au locataire
+        await websocketService.sendMessageToUser(visitRequest.tenantId, {
+          type: 'visit_request_status_updated',
+          visitRequest: {
+            id: visitRequest.id,
+            propertyId: visitRequest.propertyId,
+            status: visitRequest.status,
+            scheduledAt: visitRequest.scheduledAt?.toISO() || null,
+            updatedAt: visitRequest.updatedAt.toISO(),
+          },
+        })
+
+        // Envoyer aussi au bailleur pour mettre à jour sa liste
+        await websocketService.sendMessageToUser(visitRequest.property.user_id, {
+          type: 'visit_request_status_updated',
+          visitRequest: {
+            id: visitRequest.id,
+            propertyId: visitRequest.propertyId,
+            status: visitRequest.status,
+            scheduledAt: visitRequest.scheduledAt?.toISO() || null,
+            updatedAt: visitRequest.updatedAt.toISO(),
+            tenant: {
+              id: visitRequest.tenant.id,
+              fullName: visitRequest.tenant.fullName,
+              email: visitRequest.tenant.email,
+              portable: visitRequest.tenant.portable,
+              profilePhotoUrl: visitRequest.tenant.profilePhotoUrl,
+            },
+          },
+        })
+      } catch (error: any) {
+        // Logger mais ne pas bloquer
+        console.error('Error sending visit request update via WebSocket:', error)
+      }
+    })
 
     return response.ok({
       status: 'success',
@@ -255,6 +399,16 @@ export default class VisitRequestsController {
     // Vérifier que la demande peut encore être annulée
     if (visitRequest.status !== VisitRequestStatus.PENDING) {
       return response.badRequest({ message: 'Cette demande ne peut plus être annulée' })
+    }
+
+    // Libérer le créneau s'il était associé
+    if (visitRequest.timeSlotId) {
+      try {
+        await this.slotService.releaseSlot(visitRequest.timeSlotId)
+      } catch (error: any) {
+        // Log l'erreur mais continue avec la suppression
+        console.warn(`Error releasing slot: ${error.message}`)
+      }
     }
 
     await visitRequest.delete()
