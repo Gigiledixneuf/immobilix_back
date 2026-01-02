@@ -28,6 +28,9 @@ export default class User extends compose(BaseModel, AuthFinder) {
   @column()
   declare portable: string
 
+  @column()
+  declare profilePhotoUrl: string | null
+
   @column({ serializeAs: null })
   declare password: string
 
