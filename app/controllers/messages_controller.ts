@@ -312,53 +312,8 @@ export default class MessagesController {
         })
       }
 
-      // Envoyer une notification via WebSocket au destinataire
-      const recipientId = conversation.getOtherUserId(user.id)
-      try {
-        const websocketService = getWebSocketService()
-        await websocketService.sendToUser(recipientId, {
-          type: 'new_message',
-          conversationId: conversation.id,
-          message: {
-            id: message.id,
-            content: message.content,
-            senderId: message.senderId,
-            sender: message.sender
-              ? {
-                  id: message.sender.id,
-                  fullName: message.sender.fullName,
-                }
-              : {
-                  id: user.id,
-                  fullName: user.fullName || 'Utilisateur',
-                },
-            createdAt: message.createdAt.toISO(),
-          },
-        })
-      } catch (wsError) {
-        // Ne pas bloquer si WebSocket échoue
-        console.error('WebSocket error:', wsError)
-      }
-
-      // Envoyer une notification push
-      try {
-        const notifier = new NotificationsService()
-        await notifier.notifyUser(
-          recipientId,
-          'Nouveau message',
-          `${user.fullName}: ${payload.content.substring(0, 50)}${payload.content.length > 50 ? '...' : ''}`,
-          'message',
-          {
-            conversationId: conversation.id,
-            messageId: message.id,
-          }
-        )
-      } catch (notifError) {
-        // Ne pas bloquer si la notification échoue
-        console.error('Notification error:', notifError)
-      }
-
-      return response.created({
+      // Préparer la réponse immédiatement pour un envoi instantané
+      const responseData = {
         message: 'Message envoyé avec succès',
         data: {
           id: message.id,
@@ -377,7 +332,68 @@ export default class MessagesController {
           conversationId: conversation.id,
           createdAt: message.createdAt.toISO(),
         },
+      }
+
+      // Envoyer les notifications de manière asynchrone (ne pas bloquer la réponse)
+      const recipientId = conversation.getOtherUserId(user.id)
+      
+      // WebSocket et FCM en parallèle et asynchrone (fire and forget)
+      setImmediate(async () => {
+        try {
+          // Envoyer WebSocket et FCM en parallèle
+          const [wsResult, fcmResult] = await Promise.allSettled([
+            (async () => {
+              const websocketService = getWebSocketService()
+              await websocketService.sendMessageToUser(recipientId, {
+                type: 'new_message',
+                conversationId: conversation.id,
+                message: {
+                  id: message.id,
+                  content: message.content,
+                  senderId: message.senderId,
+                  sender: message.sender
+                    ? {
+                        id: message.sender.id,
+                        fullName: message.sender.fullName,
+                      }
+                    : {
+                        id: user.id,
+                        fullName: user.fullName || 'Utilisateur',
+                      },
+                  createdAt: message.createdAt.toISO(),
+                },
+              })
+            })(),
+            (async () => {
+              const notifier = new NotificationsService()
+              await notifier.sendFcmOnly(
+                recipientId,
+                'Nouveau message',
+                `${user.fullName}: ${payload.content.substring(0, 50)}${payload.content.length > 50 ? '...' : ''}`,
+                {
+                  conversationId: String(conversation.id),
+                  messageId: String(message.id),
+                  type: 'message',
+                }
+              )
+            })(),
+          ])
+
+          // Logger les erreurs si nécessaire
+          if (wsResult.status === 'rejected') {
+            console.error('WebSocket error:', wsResult.reason)
+          }
+          if (fcmResult.status === 'rejected') {
+            console.error('FCM notification error:', fcmResult.reason)
+          }
+        } catch (error) {
+          // Logger les erreurs mais ne pas bloquer
+          console.error('Error sending notifications:', error)
+        }
       })
+
+      // Retourner la réponse immédiatement
+      return response.created(responseData)
     } catch (error: any) {
       console.error('Error in MessagesController.store:', error)
       console.error('Error stack:', error.stack)
@@ -457,6 +473,53 @@ export default class MessagesController {
         message: 'Erreur lors de la mise à jour du message',
         error: error.message,
         stack: error.stack,
+      })
+    }
+  }
+
+  /**
+   * GET /api/conversations/unread-count
+   * Compte le nombre total de messages non lus de l'utilisateur
+   */
+  async unreadCount({ auth, response }: HttpContext) {
+    const user = auth.user
+    if (!user) {
+      return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    try {
+      // Récupérer toutes les conversations de l'utilisateur
+      const conversations = await Conversation.query()
+        .where((query) => {
+          query.where('user1_id', user.id).orWhere('user2_id', user.id)
+        })
+        .select('id')
+
+      const conversationIds = conversations.map((conv) => conv.id)
+
+      // Compter les messages non lus dans ces conversations (pas envoyés par l'utilisateur)
+      const unreadCount =
+        conversationIds.length > 0
+          ? await Message.query()
+              .whereIn('conversation_id', conversationIds)
+              .where('sender_id', '!=', user.id)
+              .where('is_read', false)
+              .count('* as total')
+          : [{ $extras: { total: 0 } }]
+
+      const count = Number(unreadCount[0].$extras.total)
+
+      return response.ok({
+        message: 'Nombre de messages non lus récupéré avec succès',
+        data: {
+          unreadCount: count,
+        },
+      })
+    } catch (error: any) {
+      console.error('Error in MessagesController.unreadCount:', error)
+      return response.internalServerError({
+        message: 'Erreur lors du comptage des messages non lus',
+        error: error.message,
       })
     }
   }

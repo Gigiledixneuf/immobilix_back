@@ -9,8 +9,11 @@ export default class NotificationsController {
   async index({ auth, response }: HttpContext) {
     const user = auth.user!
     
+    // Exclure les notifications de type "message" - elles ne doivent pas apparaître dans la page de notifications
+    // Les messages sont gérés uniquement via FCM et WebSocket
     const notifications = await Notification.query()
       .where('user_id', user.id)
+      .where('type', '!=', 'message')
       .orderBy('created_at', 'desc')
 
     return response.ok({

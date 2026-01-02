@@ -1,4 +1,5 @@
 import Notification from '#models/notification'
+import FirebaseService from '#services/firebase_service'
 
 export default class NotificationsService {
   /**
@@ -35,9 +36,62 @@ export default class NotificationsService {
       logger.default.warn('Error sending notification via WebSocket:', error?.message || String(error))
     }
 
-    // TODO: Brancher FCM pour les push notifications
+    // Envoyer via FCM (push notification)
+    try {
+      // Convertir les données en format string pour FCM
+      const fcmData = data
+        ? Object.fromEntries(
+            Object.entries(data).map(([key, value]) => [key, String(value)])
+          )
+        : undefined
+
+      // Ajouter l'ID de la notification dans les données
+      const finalFcmData = {
+        ...fcmData,
+        notificationId: String(notification.id),
+        type: notification.type,
+      }
+
+      await FirebaseService.sendToUser(userId, title, message, finalFcmData)
+    } catch (error: any) {
+      // Ne pas bloquer si FCM échoue
+      const logger = await import('@adonisjs/core/services/logger')
+      logger.default.warn('Error sending notification via FCM:', error?.message || String(error))
+    }
 
     return notification
+  }
+
+  /**
+   * Envoie une notification push FCM uniquement (sans créer de notification en base)
+   * Utilisé pour les messages qui ne doivent pas apparaître dans la page de notifications
+   */
+  async sendFcmOnly(
+    userId: number,
+    title: string,
+    message: string,
+    data?: Record<string, unknown>
+  ) {
+    try {
+      // Convertir les données en format string pour FCM
+      const fcmData = data
+        ? Object.fromEntries(
+            Object.entries(data).map(([key, value]) => [key, String(value)])
+          )
+        : undefined
+
+      // Ajouter le type dans les données
+      const finalFcmData = {
+        ...fcmData,
+        type: 'message', // Type pour identifier que c'est un message
+      }
+
+      await FirebaseService.sendToUser(userId, title, message, finalFcmData)
+    } catch (error: any) {
+      // Ne pas bloquer si FCM échoue
+      const logger = await import('@adonisjs/core/services/logger')
+      logger.default.warn('Error sending FCM notification:', error?.message || String(error))
+    }
   }
 
   /**

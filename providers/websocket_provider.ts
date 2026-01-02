@@ -80,8 +80,8 @@ export default class WebSocketProvider {
     try {
       const websocketService = getWebSocketService()
       websocketService.close()
-      const logger = (await import('@adonisjs/core/services/logger')).default
-      logger.info('✅ WebSocket service closed')
+      // Utiliser console au lieu du logger car le logger peut ne pas être disponible pendant le shutdown
+      console.log('✅ WebSocket service closed')
     } catch (error) {
       console.error('❌ Error closing WebSocket service:', error)
     }

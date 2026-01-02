@@ -8,6 +8,7 @@ import Role from '#models/role'
 import type { HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
 import Property from '#models/property'
 import Contract from '#models/contract'
+import FcmToken from '#models/fcm_token'
 
 const AuthFinder = withAuthFinder(() => hash.use('scrypt'), {
   uids: ['email'],
@@ -46,6 +47,9 @@ export default class User extends compose(BaseModel, AuthFinder) {
 
   @hasMany(() => Contract, { foreignKey: 'id_tenant' })
   declare contracts: HasMany<typeof Contract>
+
+  @hasMany(() => FcmToken)
+  declare fcmTokens: HasMany<typeof FcmToken>
 
   static accessTokens = DbAccessTokensProvider.forModel(User)
 }

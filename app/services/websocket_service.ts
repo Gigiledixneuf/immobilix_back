@@ -54,7 +54,18 @@ export default class WebSocketService {
         return false
       }
 
-      const token = url.searchParams.get('token')
+      // Extraire le token depuis les query params et le nettoyer
+      let token = url.searchParams.get('token')
+      
+      // Nettoyer le token : enlever les espaces et caractères spéciaux
+      if (token) {
+        token = token.trim()
+        // Enlever les fragments d'URL (#) et autres caractères non désirés
+        const hashIndex = token.indexOf('#')
+        if (hashIndex !== -1) {
+          token = token.substring(0, hashIndex)
+        }
+      }
 
       if (!token) {
         logger.warn('WebSocket connection rejected: no token')
@@ -317,6 +328,37 @@ export default class WebSocketService {
   }
 
   /**
+   * Envoie un message personnalisé à un utilisateur spécifique
+   * Utilisé pour les messages de chat en temps réel
+   */
+  async sendMessageToUser(userId: number, messageData: Record<string, any>) {
+    if (!this.wss) {
+      logger.warn('WebSocket service not initialized')
+      return
+    }
+
+    const userSockets = this.connectedUsers.get(userId)
+    if (!userSockets || userSockets.size === 0) {
+      logger.debug(`User ${userId} is not connected, message will be retrieved on next connection`)
+      return
+    }
+
+    try {
+      // Envoyer directement le message tel quel (déjà formaté)
+      const message = JSON.stringify(messageData)
+      userSockets.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(message)
+        }
+      })
+
+      logger.debug(`Message sent to user ${userId} via WebSocket (${userSockets.size} connection(s))`)
+    } catch (error) {
+      logger.error(`Error sending message to user ${userId}:`, error)
+    }
+  }
+
+  /**
    * Vérifie si un utilisateur est connecté
    */
   isUserConnected(userId: number): boolean {
@@ -338,7 +380,12 @@ export default class WebSocketService {
       this.wss.close()
       this.wss = null
       this.connectedUsers.clear()
-      logger.info('WebSocket service closed')
+      // Utiliser console au lieu de logger car le logger peut ne pas être disponible pendant le shutdown
+      try {
+        logger.info('WebSocket service closed')
+      } catch {
+        console.log('WebSocket service closed')
+      }
     }
   }
 }
