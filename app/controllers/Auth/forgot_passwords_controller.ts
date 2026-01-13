@@ -63,7 +63,7 @@ export default class ForgotPasswordsController {
 
       logger.info(`✅ [FORGOT-PASSWORD] Token créé - Expire à: ${resetToken.expiresAt.toISO()}`)
 
-      // TODO: Envoyer l'email avec le lien de réinitialisation
+      // Envoyer l'email avec le lien de réinitialisation
       // Pour l'instant, on log le token (en développement uniquement)
       logger.info(`🔗 [FORGOT-PASSWORD] Token de réinitialisation: ${token}`)
       logger.info(`🔗 [FORGOT-PASSWORD] Lien: ${request.header('origin') || 'http://localhost'}/reset-password?token=${token}`)
