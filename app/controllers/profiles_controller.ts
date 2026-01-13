@@ -11,7 +11,10 @@ export default class ProfilesController {
 
     await user.load('roles')
 
-    return response.ok(user)
+    return response.ok({
+      success: true,
+      data: user,
+    })
   }
 
   /**
@@ -32,8 +35,9 @@ export default class ProfilesController {
     await user.load('roles')
 
     return response.ok({
+      success: true,
       message: 'Profil mis à jour avec succès.',
-      user,
+      data: user,
     })
   }
 
@@ -77,8 +81,52 @@ export default class ProfilesController {
     await user.load('roles')
 
     return response.ok({
+      success: true,
       message: `Le rôle "${role_name}" a été ajouté avec succès.`,
-      user,
+      data: user,
+    })
+  }
+
+  /**
+   * Change le rôle actif de l'utilisateur (tenant | landlord)
+   * POST /api/profile/change-active-role
+   * 
+   * ISOLATION STRICTE : Permet de basculer entre les modes locataire et bailleur
+   */
+  async changeActiveRole({ auth, request, response }: HttpContext) {
+    const user = auth.user!
+    const { activeRole } = request.only(['activeRole'])
+
+    if (!activeRole || !['tenant', 'landlord'].includes(activeRole)) {
+      return response.badRequest({
+        success: false,
+        message: 'Le rôle actif doit être "tenant" ou "landlord"',
+      })
+    }
+
+    // Charger les rôles de l'utilisateur
+    await user.load('roles')
+    const userRoles = user.roles?.map((role) => role.name) || []
+
+    // Vérifier que l'utilisateur a le rôle correspondant
+    const requiredRoleName = activeRole === 'tenant' ? 'locataire' : 'bailleur'
+    if (!userRoles.includes(requiredRoleName)) {
+      return response.forbidden({
+        success: false,
+        message: `Vous n'avez pas le rôle "${requiredRoleName}" nécessaire pour activer ce mode.`,
+      })
+    }
+
+    // Changer le rôle actif
+    user.activeRole = activeRole as 'tenant' | 'landlord'
+    await user.save()
+
+    await user.load('roles')
+
+    return response.ok({
+      success: true,
+      message: `Rôle actif changé en mode ${activeRole === 'tenant' ? 'LOCATAIRE' : 'BAILLEUR'}`,
+      data: user,
     })
   }
 }

@@ -34,6 +34,25 @@ export default class User extends compose(BaseModel, AuthFinder) {
   @column({ serializeAs: null })
   declare password: string
 
+  /**
+   * Score de fiabilité : +10 visite complétée, -20 no-show, -5 annulation tardive
+   */
+  @column()
+  declare reliabilityScore: number
+
+  /**
+   * Rôle actif de l'utilisateur : 'tenant' ou 'landlord'
+   * Détermine quelles données l'utilisateur peut voir et quelles actions il peut effectuer
+   */
+  @column()
+  declare activeRole: 'tenant' | 'landlord' | null
+
+  /**
+   * Rôle par défaut lors de la première connexion
+   */
+  @column()
+  declare defaultRole: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
