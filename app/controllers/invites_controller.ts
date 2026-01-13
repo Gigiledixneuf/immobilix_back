@@ -20,6 +20,13 @@ export default class InvitesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'Non authentifié' })
 
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent envoyer des invitations
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour envoyer une invitation. Changez de rôle dans votre profil.',
+      })
+    }
+
     const payload = await request.validateUsing(CreateInviteValidator)
 
     if (payload.propertyId) {

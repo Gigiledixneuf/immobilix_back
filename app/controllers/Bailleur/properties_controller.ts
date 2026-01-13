@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import { PropertyValidator } from '#validators/Bailleur/property'
 import {
   Step1AddressValidator,
@@ -29,16 +30,24 @@ export default class PropertiesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    await user.load('roles')
-    const isBailleur = user.roles?.some((r) => r.name === 'bailleur') ?? false
-    if (!isBailleur) return response.badRequest({ message: "Vous n'êtes pas bailleur" })
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent voir leurs propriétés
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({ 
+        message: 'Vous devez être en mode BAILLEUR pour voir vos propriétés. Changez de rôle dans votre profil.' 
+      })
+    }
 
-    // Ne récupérer que les propriétés complètes (création terminée)
+    // Récupérer toutes les propriétés du bailleur (y compris celles en cours de création)
     const properties = await Property.query()
       .where('user_id', user.id)
-      .where('creation_step', '>=', 8) // Seulement les propriétés complètes
       .preload('photos')
       .preload('amenities')
+      .orderBy('created_at', 'desc') // Plus récentes en premier
+    
+    // Logger pour débogage
+    const logger = (await import('@adonisjs/core/services/logger')).default
+    logger.info(`📋 [PROPERTIES INDEX] Récupération des propriétés pour user_id: ${user.id}, nombre trouvé: ${properties.length}`)
+    
     return response.ok({ message: 'Liste des logements récupérée', data: properties })
   }
 
@@ -57,11 +66,12 @@ export default class PropertiesController {
       return response.unauthorized({ message: 'You are not authorized' })
     }
 
-    await user.load('roles')
-    const isBailleur = user.roles?.some((role) => role.name === 'bailleur') ?? false
-    if (!isBailleur) {
-      logger.warn(`📝 [PROPERTY STORE] Utilisateur ${user.id} n'est pas bailleur`)
-      return response.badRequest({ message: "Vous n'êtes pas bailleur" })
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent créer une propriété
+    if (user.activeRole !== 'landlord') {
+      logger.warn(`📝 [PROPERTY STORE] Utilisateur ${user.id} n'est pas en mode BAILLEUR`)
+      return response.forbidden({ 
+        message: 'Vous devez être en mode BAILLEUR pour créer une propriété. Changez de rôle dans votre profil.' 
+      })
     }
 
     // Récupérer step depuis body, query params, ou les deux
@@ -793,16 +803,28 @@ export default class PropertiesController {
       return response.notFound({ message: 'Logement introuvable' })
     }
 
-    const isOwner = user.id === property.user_id
+    // ISOLATION STRICTE : Vérifier l'accès selon le rôle actif
+    if (!user.activeRole) {
+      return response.forbidden({
+        message: 'Aucun rôle actif défini. Veuillez sélectionner un rôle dans votre profil.',
+      })
+    }
 
-    // On vérifie s'il existe un contrat entre l'utilisateur et le logement
-    const contract = await Contract.query()
-      .where('property_id', property.id)
-      .where('tenant_id', user.id)
-      .first()
-    const isTenant = !!contract
+    let hasAccess = false
 
-    if (!isOwner && !isTenant) {
+    if (user.activeRole === 'landlord') {
+      // En mode BAILLEUR : voir seulement ses propres propriétés
+      hasAccess = user.id === property.user_id
+    } else if (user.activeRole === 'tenant') {
+      // En mode LOCATAIRE : voir les propriétés où il a un contrat
+      const contract = await Contract.query()
+        .where('property_id', property.id)
+        .where('tenant_id', user.id)
+        .first()
+      hasAccess = !!contract
+    }
+
+    if (!hasAccess) {
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
     }
 
@@ -1227,11 +1249,11 @@ export default class PropertiesController {
         } catch (unlinkError: any) {
           // Ignorer si le fichier n'existe pas
           if (unlinkError.code !== 'ENOENT') {
-            console.warn(`Erreur lors de la suppression du fichier ${filePath}: ${unlinkError.message}`)
+            logger.warn(`Erreur lors de la suppression du fichier ${filePath}: ${unlinkError.message}`)
           }
         }
       } catch (error: any) {
-        console.warn(`Erreur lors du traitement de la photo ${photo.id}: ${error.message}`)
+        logger.warn(`Erreur lors du traitement de la photo ${photo.id}: ${error.message}`)
       }
     }
     
@@ -1245,7 +1267,7 @@ export default class PropertiesController {
     } catch (rmdirError: any) {
       // Ignorer si le dossier n'existe pas ou s'il n'est pas vide
       if (rmdirError.code !== 'ENOENT' && rmdirError.code !== 'ENOTEMPTY') {
-        console.warn(`Erreur lors de la suppression du dossier de la propriété: ${rmdirError.message}`)
+        logger.warn(`Erreur lors de la suppression du dossier de la propriété: ${rmdirError.message}`)
       }
     }
     
@@ -1265,10 +1287,12 @@ export default class PropertiesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    await user.load('roles')
-    const isBailleur = user.roles?.some((r) => r.name === 'bailleur') ?? false
-    if (!isBailleur)
-      return response.forbidden({ message: "Vous n'êtes pas autorisé à accéder à cette liste" })
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent voir leurs locataires
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({ 
+        message: 'Vous devez être en mode BAILLEUR pour voir vos locataires. Changez de rôle dans votre profil.' 
+      })
+    }
 
     // 1. Récupérer les IDs de propriétés du bailleur
     const userProperties = await Property.query().where('user_id', user.id).select('id')

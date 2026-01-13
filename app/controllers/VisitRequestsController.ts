@@ -1,25 +1,42 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { CreateVisitRequestValidator, UpdateVisitRequestStatusValidator } from '#validators/visit_request'
+import logger from '@adonisjs/core/services/logger'
+import {
+  CreateVisitRequestValidator,
+  UpdateVisitRequestStatusValidator,
+  CompleteVisitValidator,
+  CreateApplicationFromVisitValidator,
+} from '#validators/visit_request'
 import Property from '#models/property'
 import VisitRequest, { VisitRequestStatus } from '#models/visit_request'
 import { DateTime } from 'luxon'
 import NotificationsService from '#services/notifications_service'
 import VisitSlotService from '#services/visit_slot_service'
+import VisitFlowService from '#services/visit_flow_service'
 
 export default class VisitRequestsController {
   private slotService: VisitSlotService
+  private flowService: VisitFlowService
 
   constructor() {
     this.slotService = new VisitSlotService()
+    this.flowService = new VisitFlowService()
   }
   /**
    * POST /api/properties/:id/visit-requests
    * Créer une demande de visite pour une propriété
+   * ISOLATION STRICTE : Seuls les utilisateurs en mode LOCATAIRE peuvent créer une demande
    */
   async store({ params, request, auth, response }: HttpContext) {
     const user = auth.user
     if (!user) {
       return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    // ISOLATION STRICTE : Vérifier le rôle actif
+    if (user.activeRole !== 'tenant') {
+      return response.forbidden({
+        message: 'Vous devez être en mode LOCATAIRE pour créer une demande de visite. Changez de rôle dans votre profil.',
+      })
     }
 
     const propertyId = Number(params.id)
@@ -73,7 +90,7 @@ export default class VisitRequestsController {
     } catch (error: any) {
       // Si le créneau n'existe pas ou n'est pas dans les disponibilités, on continue sans créneau
       // (compatibilité avec l'ancien système)
-      console.warn(`Could not find/create slot: ${error.message}`)
+      logger.warn(`Could not find/create slot: ${error.message}`)
     }
 
     // Créer la demande de visite
@@ -135,7 +152,7 @@ export default class VisitRequestsController {
         })
       } catch (error: any) {
         // Logger mais ne pas bloquer
-        console.error('Error sending visit request via WebSocket:', error)
+        logger.error('Error sending visit request via WebSocket:', error)
       }
     })
 
@@ -149,11 +166,19 @@ export default class VisitRequestsController {
   /**
    * GET /api/properties/:id/visit-requests
    * Lister les demandes de visite pour une propriété (bailleur)
+   * ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent voir les demandes
    */
   async index({ params, auth, response }: HttpContext) {
     const user = auth.user
     if (!user) {
       return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    // ISOLATION STRICTE : Vérifier le rôle actif
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour voir les demandes de visite. Changez de rôle dans votre profil.',
+      })
     }
 
     const propertyId = Number(params.id)
@@ -193,13 +218,16 @@ export default class VisitRequestsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    // Charger les rôles de l'utilisateur
-    await user.load('roles')
-    const userRoles = user.roles.map((r) => r.name)
+    // ISOLATION STRICTE : Filtrer par rôle actif
+    if (!user.activeRole) {
+      return response.forbidden({
+        message: 'Aucun rôle actif défini. Veuillez sélectionner un rôle dans votre profil.',
+      })
+    }
 
     let visitRequests
 
-    if (userRoles.includes('bailleur')) {
+    if (user.activeRole === 'landlord') {
       // Le bailleur voit toutes les demandes pour toutes ses propriétés
       const userProperties = await Property.query().where('user_id', user.id).select('id')
       const propertyIds = userProperties.map((prop) => prop.id)
@@ -216,13 +244,17 @@ export default class VisitRequestsController {
           .orderBy('requested_date', 'asc')
           .orderBy('requested_time', 'asc')
       }
-    } else {
+    } else if (user.activeRole === 'tenant') {
       // Le locataire voit seulement ses propres demandes
       visitRequests = await VisitRequest.query()
         .where('tenant_id', user.id)
         .preload('property', (p) => p.select(['id', 'name', 'address', 'city', 'mainPhotoUrl']))
         .orderBy('requested_date', 'asc')
         .orderBy('requested_time', 'asc')
+    } else {
+      return response.forbidden({
+        message: "Vous n'avez pas accès aux demandes de visite",
+      })
     }
 
     return response.ok({
@@ -235,11 +267,19 @@ export default class VisitRequestsController {
   /**
    * PATCH /api/visit-requests/:id/status
    * Mettre à jour le statut d'une demande de visite (bailleur)
+   * ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent modifier le statut
    */
   async updateStatus({ params, request, auth, response }: HttpContext) {
     const user = auth.user
     if (!user) {
       return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    // ISOLATION STRICTE : Vérifier le rôle actif
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour modifier le statut d\'une demande de visite. Changez de rôle dans votre profil.',
+      })
     }
 
     const visitRequestId = Number(params.id)
@@ -266,12 +306,27 @@ export default class VisitRequestsController {
     // Si acceptée, réserver le créneau et définir la date/heure confirmée
     if (payload.status === 'accepted') {
       if (payload.scheduled_at) {
-        visitRequest.scheduledAt = payload.scheduled_at
+        // Convertir scheduled_at en DateTime de Luxon
+        if (payload.scheduled_at instanceof DateTime) {
+          visitRequest.scheduledAt = payload.scheduled_at
+        } else if (payload.scheduled_at instanceof Date) {
+          visitRequest.scheduledAt = DateTime.fromJSDate(payload.scheduled_at)
+        } else if (typeof payload.scheduled_at === 'string') {
+          visitRequest.scheduledAt = DateTime.fromISO(payload.scheduled_at)
+        } else {
+          // Fallback: essayer de parser comme ISO string
+          visitRequest.scheduledAt = DateTime.fromISO(String(payload.scheduled_at))
+        }
       } else {
         // Si pas de scheduled_at fourni, utiliser requestedDate et requestedTime
         visitRequest.scheduledAt = DateTime.fromISO(
           `${visitRequest.requestedDate.toISODate()}T${visitRequest.requestedTime}`
-        ).toJSDate()
+        )
+      }
+
+      // Initialiser le délai de confirmation à 48h par défaut
+      if (!visitRequest.confirmationDeadlineHours) {
+        visitRequest.confirmationDeadlineHours = 48
       }
 
       // Si un créneau est associé, le réserver
@@ -299,7 +354,7 @@ export default class VisitRequestsController {
           visitRequest.timeSlotId = null
         } catch (error: any) {
           // Log l'erreur mais continue (le créneau peut déjà être libéré)
-          console.warn(`Error releasing slot: ${error.message}`)
+          logger.warn(`Error releasing slot: ${error.message}`)
         }
       }
     }
@@ -363,7 +418,7 @@ export default class VisitRequestsController {
         })
       } catch (error: any) {
         // Logger mais ne pas bloquer
-        console.error('Error sending visit request update via WebSocket:', error)
+        logger.error('Error sending visit request update via WebSocket:', error)
       }
     })
 
@@ -382,6 +437,13 @@ export default class VisitRequestsController {
     const user = auth.user
     if (!user) {
       return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode LOCATAIRE peuvent supprimer leurs demandes
+    if (user.activeRole !== 'tenant') {
+      return response.forbidden({
+        message: 'Vous devez être en mode LOCATAIRE pour annuler une demande de visite. Changez de rôle dans votre profil.',
+      })
     }
 
     const visitRequestId = Number(params.id)
@@ -407,7 +469,7 @@ export default class VisitRequestsController {
         await this.slotService.releaseSlot(visitRequest.timeSlotId)
       } catch (error: any) {
         // Log l'erreur mais continue avec la suppression
-        console.warn(`Error releasing slot: ${error.message}`)
+        logger.warn(`Error releasing slot: ${error.message}`)
       }
     }
 
@@ -417,5 +479,103 @@ export default class VisitRequestsController {
       status: 'success',
       message: 'Demande de visite annulée',
     })
+  }
+
+  /**
+   * PATCH /api/visit-requests/:id/complete
+   * Confirmer une visite (double confirmation)
+   */
+  async complete({ params, request, auth, response }: HttpContext) {
+    const user = auth.user
+    if (!user) {
+      return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    const visitRequestId = Number(params.id)
+    const payload = await request.validateUsing(CompleteVisitValidator)
+
+    try {
+      const visitRequest = await this.flowService.confirmVisit(
+        visitRequestId,
+        user.id,
+        payload.confirmed_by,
+        payload.notes
+      )
+
+      return response.ok({
+        status: 'success',
+        message:
+          visitRequest.status === VisitRequestStatus.COMPLETED
+            ? 'Visite confirmée par les deux parties'
+            : 'Confirmation enregistrée. En attente de la confirmation de l\'autre partie.',
+        data: visitRequest,
+      })
+    } catch (error: any) {
+      return response.badRequest({
+        status: 'error',
+        message: error.message || 'Erreur lors de la confirmation de la visite',
+      })
+    }
+  }
+
+  /**
+   * POST /api/visit-requests/:id/pre-confirm
+   * Pré-confirmer une visite (anti-fantôme)
+   */
+  async preConfirm({ params, auth, response }: HttpContext) {
+    const user = auth.user
+    if (!user) {
+      return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    const visitRequestId = Number(params.id)
+
+    try {
+      const visitRequest = await this.flowService.preConfirmVisit(visitRequestId, user.id)
+
+      return response.ok({
+        status: 'success',
+        message: 'Pré-confirmation enregistrée',
+        data: visitRequest,
+      })
+    } catch (error: any) {
+      return response.badRequest({
+        status: 'error',
+        message: error.message || 'Erreur lors de la pré-confirmation',
+      })
+    }
+  }
+
+  /**
+   * POST /api/visit-requests/:id/create-application
+   * Créer une candidature depuis une visite complétée
+   */
+  async createApplicationFromVisit({ params, request, auth, response }: HttpContext) {
+    const user = auth.user
+    if (!user) {
+      return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    const visitRequestId = Number(params.id)
+    const payload = await request.validateUsing(CreateApplicationFromVisitValidator)
+
+    try {
+      const application = await this.flowService.createApplicationFromVisit(
+        visitRequestId,
+        user.id,
+        payload.message
+      )
+
+      return response.created({
+        status: 'success',
+        message: 'Candidature créée avec succès',
+        data: application,
+      })
+    } catch (error: any) {
+      return response.badRequest({
+        status: 'error',
+        message: error.message || 'Erreur lors de la création de la candidature',
+      })
+    }
   }
 }

@@ -113,7 +113,13 @@ export default class PropertyQuestionsController {
       return response.notFound({ message: 'Question introuvable' })
     }
 
-    // Vérifier que l'utilisateur est le propriétaire de la propriété
+    // ISOLATION STRICTE : Vérifier le rôle actif et l'ownership
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour répondre à une question. Changez de rôle dans votre profil.',
+      })
+    }
+
     if (question.property.user_id !== user.id) {
       return response.forbidden({ message: "Vous n'êtes pas autorisé à répondre à cette question" })
     }

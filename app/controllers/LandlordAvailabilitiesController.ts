@@ -25,6 +25,13 @@ export default class LandlordAvailabilitiesController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent voir leurs disponibilités
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour voir vos disponibilités. Changez de rôle dans votre profil.',
+      })
+    }
+
     const availability = await this.availabilityService.getActiveAvailability(user.id)
 
     return response.ok({
@@ -42,6 +49,13 @@ export default class LandlordAvailabilitiesController {
     const user = auth.user
     if (!user) {
       return response.unauthorized({ message: 'Non authentifié' })
+    }
+
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent configurer leurs disponibilités
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour configurer vos disponibilités. Changez de rôle dans votre profil.',
+      })
     }
 
     const payload = await request.validateUsing(CreateLandlordAvailabilityValidator)

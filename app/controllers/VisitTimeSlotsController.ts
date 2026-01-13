@@ -85,7 +85,13 @@ export default class VisitTimeSlotsController {
       return response.notFound({ message: 'Logement introuvable' })
     }
 
-    // Vérifier que l'utilisateur est le propriétaire
+    // ISOLATION STRICTE : Vérifier le rôle actif et l'ownership
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour bloquer un créneau. Changez de rôle dans votre profil.',
+      })
+    }
+
     if (property.user_id !== user.id) {
       return response.forbidden({ message: "Vous n'êtes pas propriétaire de ce logement" })
     }
@@ -134,7 +140,13 @@ export default class VisitTimeSlotsController {
       return response.notFound({ message: 'Créneau introuvable' })
     }
 
-    // Vérifier que l'utilisateur est propriétaire de la propriété associée
+    // ISOLATION STRICTE : Vérifier le rôle actif et l'ownership
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour débloquer un créneau. Changez de rôle dans votre profil.',
+      })
+    }
+
     await slot.load('property')
     if (slot.property.user_id !== user.id) {
       return response.forbidden({ message: "Vous n'êtes pas autorisé à débloquer ce créneau" })
