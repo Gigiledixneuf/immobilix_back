@@ -1,6 +1,7 @@
 // app/services/HederaService.ts
 
 // Importation des classes nécessaires du SDK Hedera pour interagir avec le réseau.
+import logger from '@adonisjs/core/services/logger'
 import {
   Client, // Client pour la connexion au réseau Hedera.
   ContractId, // Classe pour représenter l'ID d'un smart contract.
@@ -37,7 +38,7 @@ export default class HederaService {
       // Conversion de la clé privée depuis sa chaîne de caractères (format DER).
       this.operatorKey = PrivateKey.fromStringDer(cleanedKey) // ✅ DER format OK
     } catch (e) {
-      console.error('Invalid Hedera private key', e)
+      logger.error('Invalid Hedera private key', e)
       throw e
     }
 
@@ -87,39 +88,6 @@ export default class HederaService {
     return tx.transactionId.toString()
   }
 
-  // ===================================================
-  // 🔹 4. ENREGISTREMENT D'UN PAIEMENT SUR LA CHAÎNE
-  // ===================================================
-  // Appelle la fonction 'makePayment' du smart contract pour enregistrer un paiement.
-  async makePaymentOnChain(data: any): Promise<string> {
-    // Convertit l'ID du contrat principal en un objet ContractId.
-    const contract = ContractId.fromString(this.MASTER_CONTRACT_ID)
-
-    // Encode les paramètres à envoyer au smart contract.
-    const params = new ContractFunctionParameters()
-      .addUint256(data.dbContractId) // ID du contrat concerné dans la DB.
-      .addUint256(data.paymentId) // ID du paiement dans la DB.
-      .addUint256(data.amount) // Montant du paiement.
-      .addString(data.paymentMethod) // Méthode de paiement.
-
-    // Prépare et exécute la transaction d'appel de fonction de contrat.
-    const tx = await new ContractExecuteTransaction()
-      .setContractId(contract)
-      .setGas(500000) // Définit la limite de gaz.
-      .setFunction('makePayment', params) // Nom de la fonction Solidity à appeler.
-      .execute(this.client)
-
-    // Récupère le reçu de la transaction pour vérifier le statut.
-    const receipt = await tx.getReceipt(this.client)
-
-    // Vérifie si le statut du reçu est un succès.
-    if (!receipt.status.toString().includes('SUCCESS')) {
-      throw new Error('Payment failed: ' + receipt.status.toString())
-    }
-
-    // Retourne l'ID de la transaction confirmée.
-    return tx.transactionId.toString()
-  }
 
   // ===================================================
   // 🔹 5. MISE À JOUR D'UN CONTRAT SUR LA CHAÎNE
@@ -196,7 +164,7 @@ export default class HederaService {
       // Retourner la dernière transaction (ou toutes si nécessaire)
       return results[results.length - 1]
     } catch (error) {
-      console.error('Erreur lors de la mise à jour du contrat Hedera:', error)
+      logger.error('Erreur lors de la mise à jour du contrat Hedera:', error)
       throw new Error(
         `Échec de la mise à jour du contrat on-chain: ${error instanceof Error ? error.message : String(error)}`
       )
@@ -233,7 +201,7 @@ export default class HederaService {
 
       return tx.transactionId.toString()
     } catch (error) {
-      console.error('Erreur lors de la résiliation du contrat Hedera:', error)
+      logger.error('Erreur lors de la résiliation du contrat Hedera:', error)
       throw new Error(
         `Échec de la résiliation du contrat on-chain: ${error instanceof Error ? error.message : String(error)}`
       )

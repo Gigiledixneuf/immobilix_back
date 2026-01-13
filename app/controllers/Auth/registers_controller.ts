@@ -1,10 +1,9 @@
-// import type { HttpContext } from '@adonisjs/core/http'
-
+import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import User from '#models/user'
 import Role from '#models/role'
 import hash from '@adonisjs/core/services/hash'
 import { RegisterValidator } from '#validators/Auth/register'
-import { HttpContext } from '@adonisjs/core/http'
 
 export default class RegistersController {
   async register({ request, response }: HttpContext) {
@@ -60,7 +59,7 @@ export default class RegistersController {
         },
       })
     } catch (error) {
-      console.error('Register error:', error)
+      logger.error('Register error:', error)
       return response.internalServerError({
         status: 'error',
         message: 'Inscription échouée',

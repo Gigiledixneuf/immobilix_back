@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import Conversation from '#models/conversation'
 import Message from '#models/message'
 import { CreateMessageValidator } from '#validators/message'
@@ -85,7 +86,7 @@ export default class MessagesController {
         count: formattedConversations.length,
       })
     } catch (error: any) {
-      console.error('Error in MessagesController.index:', error)
+      logger.error('Error in MessagesController.index:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération des conversations',
         error: error.message,
@@ -154,7 +155,7 @@ export default class MessagesController {
         count: formattedMessages.length,
       })
     } catch (error: any) {
-      console.error('Error in MessagesController.getMessages:', error)
+      logger.error('Error in MessagesController.getMessages:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération des messages',
         error: error.message,
@@ -174,14 +175,7 @@ export default class MessagesController {
     }
 
     try {
-      console.log('MessagesController.store: Starting message creation')
       const payload = await request.validateUsing(CreateMessageValidator)
-      console.log('MessagesController.store: Payload validated:', { 
-        conversationId: payload.conversationId, 
-        recipientId: payload.recipientId,
-        propertyId: payload.propertyId,
-        contentLength: payload.content?.length 
-      })
 
       let conversation: Conversation | null = null
 
@@ -201,11 +195,6 @@ export default class MessagesController {
         const recipientId = payload.recipientId
         const propertyId = payload.propertyId || null
 
-        console.log('MessagesController.store: Looking for conversation', { 
-          userId: user.id, 
-          recipientId, 
-          propertyId 
-        })
 
         // Chercher une conversation existante (avec propertyId si fourni)
         // Construire la requête avec les conditions appropriées
@@ -226,20 +215,17 @@ export default class MessagesController {
         }
 
         conversation = await queryBuilder.first()
-        console.log('MessagesController.store: Conversation found:', conversation ? conversation.id : 'none')
 
         // Si aucune conversation n'existe, en créer une nouvelle
         if (!conversation) {
-          console.log('MessagesController.store: Creating new conversation')
           try {
             conversation = await Conversation.create({
               user1Id: user.id < recipientId ? user.id : recipientId,
               user2Id: user.id < recipientId ? recipientId : user.id,
               propertyId: propertyId,
             })
-            console.log('MessagesController.store: Conversation created:', conversation.id)
           } catch (createError: any) {
-            console.error('MessagesController.store: Error creating conversation:', createError)
+            logger.error('MessagesController.store: Error creating conversation:', createError)
             // Si l'erreur est due à une contrainte unique, réessayer de trouver la conversation
             if (
               createError.code === 'ER_DUP_ENTRY' ||
@@ -247,7 +233,6 @@ export default class MessagesController {
               createError.message?.includes('unique constraint') ||
               createError.message?.includes('Duplicate entry')
             ) {
-              console.log('MessagesController.store: Duplicate entry, retrying query')
               // Une conversation a été créée entre-temps, la récupérer
               // Reconstruire la requête
               const retryQuery = Conversation.query()
@@ -265,10 +250,9 @@ export default class MessagesController {
               }
               conversation = await retryQuery.first()
               if (!conversation) {
-                console.error('MessagesController.store: Conversation still not found after duplicate error')
+                logger.error('MessagesController.store: Conversation still not found after duplicate error')
                 throw createError
               }
-              console.log('MessagesController.store: Conversation found after retry:', conversation.id)
             } else {
               throw createError
             }
@@ -281,10 +265,6 @@ export default class MessagesController {
       }
 
       // Créer le message
-      console.log('MessagesController.store: Creating message', { 
-        conversationId: conversation.id, 
-        senderId: user.id 
-      })
       const message = await Message.create({
         conversationId: conversation.id,
         senderId: user.id,
@@ -292,7 +272,6 @@ export default class MessagesController {
         type: payload.type || 'text',
         isRead: false,
       })
-      console.log('MessagesController.store: Message created:', message.id)
 
       // Mettre à jour la conversation avec le dernier message
       await conversation.merge({ lastMessageId: message.id }).save()
@@ -304,7 +283,7 @@ export default class MessagesController {
 
       // Vérifier que sender est bien chargé
       if (!message.sender) {
-        console.error('MessagesController.store: Sender not loaded for message:', message.id)
+        logger.warn('MessagesController.store: Sender not loaded for message:', message.id)
         // Recharger le message avec sender
         await message.refresh()
         await message.load('sender', (senderQuery) => {
@@ -381,26 +360,25 @@ export default class MessagesController {
 
           // Logger les erreurs si nécessaire
           if (wsResult.status === 'rejected') {
-            console.error('WebSocket error:', wsResult.reason)
+            logger.error('WebSocket error:', wsResult.reason)
           }
           if (fcmResult.status === 'rejected') {
-            console.error('FCM notification error:', fcmResult.reason)
+            logger.error('FCM notification error:', fcmResult.reason)
           }
         } catch (error) {
           // Logger les erreurs mais ne pas bloquer
-          console.error('Error sending notifications:', error)
+          logger.error('Error sending notifications:', error)
         }
       })
 
       // Retourner la réponse immédiatement
       return response.created(responseData)
     } catch (error: any) {
-      console.error('Error in MessagesController.store:', error)
-      console.error('Error stack:', error.stack)
-      console.error('Error details:', {
+      logger.error('Error in MessagesController.store:', {
+        error: error.message,
+        stack: error.stack,
         name: error.name,
         code: error.code,
-        message: error.message,
         sql: error.sql,
         errno: error.errno,
         sqlState: error.sqlState,
@@ -468,7 +446,7 @@ export default class MessagesController {
         data: message,
       })
     } catch (error: any) {
-      console.error('Error in MessagesController.markAsRead:', error)
+      logger.error('Error in MessagesController.markAsRead:', error)
       return response.internalServerError({
         message: 'Erreur lors de la mise à jour du message',
         error: error.message,
@@ -516,7 +494,7 @@ export default class MessagesController {
         },
       })
     } catch (error: any) {
-      console.error('Error in MessagesController.unreadCount:', error)
+      logger.error('Error in MessagesController.unreadCount:', error)
       return response.internalServerError({
         message: 'Erreur lors du comptage des messages non lus',
         error: error.message,

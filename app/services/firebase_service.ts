@@ -1,6 +1,5 @@
 import admin from 'firebase-admin'
 import env from '#start/env'
-import logger from '@adonisjs/core/services/logger'
 import FcmToken from '#models/fcm_token'
 
 /**
@@ -21,7 +20,12 @@ export default class FirebaseService {
     try {
       admin.app()
       this.initialized = true
-      logger.info('Firebase Admin SDK already initialized')
+      try {
+        const logger = await import('@adonisjs/core/services/logger')
+        logger.default.info('Firebase Admin SDK already initialized')
+      } catch {
+        // Logger non disponible, ignorer
+      }
       return
     } catch {
       // Firebase n'est pas encore initialisé, continuer
@@ -60,16 +64,26 @@ export default class FirebaseService {
         } else {
           // Pas de credentials configurés - ce n'est pas une erreur
           // L'application peut fonctionner sans Firebase (notifications FCM désactivées)
-          logger.debug(
-            'Firebase Admin SDK not initialized: Missing credentials. Set FIREBASE_CREDENTIALS_PATH or FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, and FIREBASE_CLIENT_EMAIL to enable FCM notifications'
-          )
+          try {
+            const logger = await import('@adonisjs/core/services/logger')
+            logger.default.debug(
+              'Firebase Admin SDK not initialized: Missing credentials. Set FIREBASE_CREDENTIALS_PATH or FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, and FIREBASE_CLIENT_EMAIL to enable FCM notifications'
+            )
+          } catch {
+            // Logger non disponible, ignorer
+          }
           this.initialized = false
           return
         }
       }
 
       this.initialized = true
-      logger.info('Firebase Admin SDK initialized successfully')
+      try {
+        const logger = await import('@adonisjs/core/services/logger')
+        logger.default.info('Firebase Admin SDK initialized successfully')
+      } catch {
+        // Logger non disponible, ignorer
+      }
     } catch (error: any) {
       // Ne pas throw l'erreur - permettre à l'app de démarrer sans Firebase
       // Firebase pourra être réinitialisé plus tard si nécessaire
@@ -77,15 +91,17 @@ export default class FirebaseService {
       
       // Logger l'erreur de manière sécurisée
       try {
+        const logger = await import('@adonisjs/core/services/logger')
         const errorMessage = error?.message || (error ? String(error) : 'Unknown error')
         if (!errorMessage.includes('Missing credentials')) {
-          logger.warn('Firebase Admin SDK initialization skipped:', errorMessage)
+          logger.default.warn('Firebase Admin SDK initialization skipped:', errorMessage)
         } else {
-          logger.debug('Firebase Admin SDK not initialized: credentials not configured')
+          logger.default.debug('Firebase Admin SDK not initialized: credentials not configured')
         }
       } catch (logError) {
-        // Si même le logger échoue, utiliser console
-        console.warn('Firebase Admin SDK initialization skipped')
+        // Si même le logger échoue, utiliser console comme fallback
+        const errorMessage = error?.message || (error ? String(error) : 'Unknown error')
+        console.warn('Firebase Admin SDK initialization skipped:', errorMessage)
       }
       return
     }
@@ -103,7 +119,12 @@ export default class FirebaseService {
     if (!this.initialized) {
       await this.initialize()
       if (!this.initialized) {
-        logger.warn('Firebase not initialized, skipping FCM notification')
+        try {
+          const logger = await import('@adonisjs/core/services/logger')
+          logger.default.warn('Firebase not initialized, skipping FCM notification')
+        } catch {
+          // Logger non disponible, ignorer
+        }
         return false
       }
     }
@@ -138,18 +159,33 @@ export default class FirebaseService {
       }
 
       const response = await admin.messaging().send(message)
-      logger.info('FCM notification sent successfully:', response)
+      try {
+        const logger = await import('@adonisjs/core/services/logger')
+        logger.default.info('FCM notification sent successfully:', response)
+      } catch {
+        // Logger non disponible, ignorer
+      }
       return true
     } catch (error: any) {
       // Gérer les tokens invalides
       if (error.code === 'messaging/invalid-registration-token' || error.code === 'messaging/registration-token-not-registered') {
-        logger.warn(`Invalid FCM token: ${token}, removing from database`)
+        try {
+          const logger = await import('@adonisjs/core/services/logger')
+          logger.default.warn(`Invalid FCM token: ${token}, removing from database`)
+        } catch {
+          // Logger non disponible, ignorer
+        }
         // Supprimer le token invalide de la base de données
         await FcmToken.query().where('token', token).delete()
         return false
       }
 
-      logger.error('Error sending FCM notification:', error.message)
+      try {
+        const logger = await import('@adonisjs/core/services/logger')
+        logger.default.error('Error sending FCM notification:', error.message)
+      } catch {
+        // Logger non disponible, ignorer
+      }
       return false
     }
   }
@@ -223,19 +259,34 @@ export default class FirebaseService {
 
         if (invalidTokens.length > 0) {
           await FcmToken.query().whereIn('token', invalidTokens).delete()
-          logger.info(`Removed ${invalidTokens.length} invalid FCM tokens from database`)
+          try {
+            const logger = await import('@adonisjs/core/services/logger')
+            logger.default.info(`Removed ${invalidTokens.length} invalid FCM tokens from database`)
+          } catch {
+            // Logger non disponible, ignorer
+          }
         }
       }
 
-      logger.info(
-        `FCM multicast notification sent: ${response.successCount} success, ${response.failureCount} failures`
-      )
+      try {
+        const logger = await import('@adonisjs/core/services/logger')
+        logger.default.info(
+          `FCM multicast notification sent: ${response.successCount} success, ${response.failureCount} failures`
+        )
+      } catch {
+        // Logger non disponible, ignorer
+      }
       return {
         successCount: response.successCount,
         failureCount: response.failureCount,
       }
     } catch (error: any) {
-      logger.error('Error sending FCM multicast notification:', error.message)
+      try {
+        const logger = await import('@adonisjs/core/services/logger')
+        logger.default.error('Error sending FCM multicast notification:', error.message)
+      } catch {
+        // Logger non disponible, ignorer
+      }
       return { successCount: 0, failureCount: tokens.length }
     }
   }
@@ -255,7 +306,12 @@ export default class FirebaseService {
       .select('token')
 
     if (tokens.length === 0) {
-      logger.debug(`No active FCM tokens found for user ${userId}`)
+      try {
+        const logger = await import('@adonisjs/core/services/logger')
+        logger.default.debug(`No active FCM tokens found for user ${userId}`)
+      } catch {
+        // Logger non disponible, ignorer
+      }
       return false
     }
 

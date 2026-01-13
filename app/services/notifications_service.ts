@@ -1,3 +1,4 @@
+import logger from '@adonisjs/core/services/logger'
 import Notification from '#models/notification'
 import FirebaseService from '#services/firebase_service'
 
@@ -103,8 +104,8 @@ export default class NotificationsService {
     body: string,
     data?: Record<string, unknown>
   ) {
-    // TODO: SMS/Email provider
-    console.log(`[NOTIFY contact:${contact}] ${title} - ${body}`, data ?? {})
+    // SMS/Email provider à implémenter
+    logger.debug(`[NOTIFY contact:${contact}] ${title} - ${body}`, data ?? {})
   }
 }
 

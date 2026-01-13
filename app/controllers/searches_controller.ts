@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import PropertyView from '#models/property_view'
 import Favorite from '#models/favorite'
 import Property from '#models/property'
@@ -88,14 +89,14 @@ export default class SearchesController {
         }
       })
 
-      console.log(`Found ${formattedProperties.length} recently viewed properties for user ${user.id}`)
+      logger.debug(`Found ${formattedProperties.length} recently viewed properties for user ${user.id}`)
       
       return response.ok({
         data: formattedProperties,
         count: formattedProperties.length,
       })
     } catch (error: any) {
-      console.error('Error in SearchesController.recentlyViewed:', error)
+      logger.error('Error in SearchesController.recentlyViewed:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération des propriétés consultées récemment',
         error: error.message || 'Unknown error',

@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import Property from '#models/property'
 import Review from '#models/review'
 import PropertyView from '#models/property_view'
@@ -15,9 +16,16 @@ export default class PublicPropertiesController {
    * - limit: items per page (default: 10)
    * - search: search term (name, city, address)
    * - city: filter by city
-   * - type: filter by property type (house, apartment, studio, room)
+   * - type: filter by property type (house, apartment, studio, room) - can be comma-separated
    * - minPrice: minimum price filter
    * - maxPrice: maximum price filter
+   * - minRooms: minimum number of rooms
+   * - minBathrooms: minimum number of bathrooms
+   * - minSurface: minimum surface area
+   * - maxSurface: maximum surface area
+   * - minCapacity: minimum capacity
+   * - maxCapacity: maximum capacity
+   * - amenities: comma-separated list of amenity names
    */
   async index({ request, response, auth }: HttpContext) {
     try {
@@ -28,6 +36,13 @@ export default class PublicPropertiesController {
       const type = request.input('type', '')
       const minPrice = request.input('minPrice')
       const maxPrice = request.input('maxPrice')
+      const minRooms = request.input('minRooms')
+      const minBathrooms = request.input('minBathrooms')
+      const minSurface = request.input('minSurface')
+      const maxSurface = request.input('maxSurface')
+      const minCapacity = request.input('minCapacity')
+      const maxCapacity = request.input('maxCapacity')
+      const amenities = request.input('amenities', '')
 
       // Vérifier si l'utilisateur est authentifié
       const apiAuth = auth.use('api')
@@ -37,6 +52,7 @@ export default class PublicPropertiesController {
         .preload('user', (userQuery) => {
           userQuery.select(['id', 'fullName', 'email', 'portable'])
         })
+        .preload('amenities')
 
       // Essayer de précharger les reviews, mais ne pas échouer si la table n'existe pas
       try {
@@ -50,7 +66,7 @@ export default class PublicPropertiesController {
         })
       } catch (e) {
         // Si la table reviews n'existe pas encore, continuer sans précharger
-        console.log('Reviews table not available, continuing without reviews preload')
+        logger.debug('Reviews table not available, continuing without reviews preload')
       }
 
     // Recherche par nom, ville ou adresse
@@ -68,9 +84,12 @@ export default class PublicPropertiesController {
       query.whereILike('city', `%${city}%`)
     }
 
-    // Filtre par type
+    // Filtre par type (support multiple types séparés par virgule)
     if (type) {
-      query.where('type', type)
+      const types = type.split(',').map(t => t.trim()).filter(t => t)
+      if (types.length > 0) {
+        query.whereIn('type', types)
+      }
     }
 
     // Filtre par prix minimum
@@ -81,6 +100,69 @@ export default class PublicPropertiesController {
     // Filtre par prix maximum
     if (maxPrice) {
       query.where('price', '<=', Number(maxPrice))
+    }
+
+    // Filtre par nombre de chambres minimum
+    if (minRooms) {
+      query.where('rooms', '>=', Number(minRooms))
+    }
+
+    // Filtre par nombre de salles de bain minimum
+    if (minBathrooms) {
+      query.where('bathrooms', '>=', Number(minBathrooms))
+    }
+
+    // Filtre par superficie minimum
+    if (minSurface) {
+      query.where('surface', '>=', Number(minSurface))
+    }
+
+    // Filtre par superficie maximum
+    if (maxSurface) {
+      query.where('surface', '<=', Number(maxSurface))
+    }
+
+    // Filtre par capacité minimum
+    if (minCapacity) {
+      query.where('capacity', '>=', Number(minCapacity))
+    }
+
+    // Filtre par capacité maximum
+    if (maxCapacity) {
+      query.where('capacity', '<=', Number(maxCapacity))
+    }
+
+    // Filtre par commodités (si des commodités sont spécifiées)
+    if (amenities) {
+      const amenityList = amenities.split(',').map(a => a.trim()).filter(a => a)
+      if (amenityList.length > 0) {
+        // Utiliser une sous-requête pour trouver les propriétés avec au moins une des commodités
+        const PropertyAmenity = (await import('#models/property_amenity')).default
+        
+        // Construire une requête pour trouver les property_id qui ont au moins une des commodités
+        const amenityQuery = PropertyAmenity.query()
+          .select('property_id')
+          .where((builder) => {
+            amenityList.forEach((amenity, index) => {
+              if (index === 0) {
+                builder.whereILike('name', `%${amenity}%`)
+              } else {
+                builder.orWhereILike('name', `%${amenity}%`)
+              }
+            })
+          })
+          .groupBy('property_id')
+
+        const propertyIdsWithAmenities = await amenityQuery
+        const ids = propertyIdsWithAmenities.map((pa: any) => pa.property_id)
+        
+        if (ids.length > 0) {
+          query.whereIn('id', ids)
+        } else {
+          // Si aucune propriété ne correspond, retourner un résultat vide
+          query.where('id', 0)
+        }
+      }
     }
 
     const properties = await query.orderBy('created_at', 'desc').paginate(page, limit)
@@ -125,7 +207,7 @@ export default class PublicPropertiesController {
         })
       } catch (e) {
         // Si la table reviews n'existe pas, utiliser des valeurs par défaut
-        console.log('Reviews table not available, continuing without reviews')
+        logger.debug('Reviews table not available, continuing without reviews')
       }
     }
 
@@ -159,11 +241,17 @@ export default class PublicPropertiesController {
           type: property.type,
           surface: property.surface,
           rooms: property.rooms,
+          bathrooms: property.bathrooms,
           capacity: property.capacity,
           price: property.price,
           description: property.description,
           image: imageUrl,
           createdAt: property.createdAt,
+          // Commodités
+          amenities: property.amenities ? property.amenities.map((a: any) => ({
+            id: a.id,
+            name: a.name,
+          })) : [],
           // Informations du bailleur (données publiques uniquement pour visiteurs)
           landlord: property.user
             ? {
@@ -196,7 +284,7 @@ export default class PublicPropertiesController {
       data: propertiesWithStats,
     })
     } catch (error) {
-      console.error('Error in PublicPropertiesController.index:', error)
+      logger.error('Error in PublicPropertiesController.index:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération des propriétés',
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -229,7 +317,7 @@ export default class PublicPropertiesController {
             .orderBy('created_at', 'desc')
         })
       } catch (e) {
-        console.log('Reviews table not available, continuing without reviews preload')
+        logger.debug('Reviews table not available, continuing without reviews preload')
       }
 
       const property = await query.first()
@@ -252,7 +340,7 @@ export default class PublicPropertiesController {
             : 0
         reviewsList = property.reviews || []
       } catch (e) {
-        console.log(`Reviews not available for property ${property.id}: ${e}`)
+        logger.debug(`Reviews not available for property ${property.id}: ${e}`)
         totalReviews = 0
         averageRating = 0
         reviewsList = []
@@ -268,7 +356,7 @@ export default class PublicPropertiesController {
         if (isAuthenticated) {
           const user = apiAuth.user
           if (user) {
-            console.log(`Attempting to track view for user ${user.id}, property ${property.id}`)
+            logger.debug(`Attempting to track view for user ${user.id}, property ${property.id}`)
             
             // Vérifier si une vue existe déjà aujourd'hui pour éviter les doublons
             const { DateTime } = await import('luxon')
@@ -288,27 +376,27 @@ export default class PublicPropertiesController {
                   userId: user.id,
                   propertyId: property.id,
                 })
-                console.log(`✅ Property view tracked successfully: user ${user.id}, property ${property.id}, view ID ${newView.id}`)
+                logger.debug(`Property view tracked successfully: user ${user.id}, property ${property.id}, view ID ${newView.id}`)
               } catch (createError: any) {
-                console.error(`❌ Failed to create property view: ${createError?.message || createError}`, createError?.stack)
+                logger.error(`Failed to create property view: ${createError?.message || createError}`, createError?.stack)
                 // Si c'est une erreur de contrainte unique, c'est OK (vue déjà créée)
                 if (createError?.code !== 'ER_DUP_ENTRY' && createError?.code !== 1062) {
                   throw createError
                 }
-                console.log(`⚠️ Duplicate view detected (already exists): user ${user.id}, property ${property.id}`)
+                logger.debug(`Duplicate view detected (already exists): user ${user.id}, property ${property.id}`)
               }
             } else {
-              console.log(`ℹ️ Property view already exists for today: user ${user.id}, property ${property.id}, view ID ${existingView.id}`)
+              logger.debug(`Property view already exists for today: user ${user.id}, property ${property.id}, view ID ${existingView.id}`)
             }
           } else {
-            console.log(`⚠️ auth.use('api').check() returned true but auth.use('api').user is null for property ${property.id}`)
+            logger.warn(`auth.use('api').check() returned true but auth.use('api').user is null for property ${property.id}`)
           }
         } else {
-          console.log(`⚠️ User not authenticated (auth.use('api').check() = false), skipping view tracking for property ${property.id}`)
+          logger.debug(`User not authenticated (auth.use('api').check() = false), skipping view tracking for property ${property.id}`)
         }
       } catch (viewError: any) {
         // Ne pas faire échouer la requête si le tracking échoue
-        console.error(`❌ Could not track property view: ${viewError?.message || viewError}`, viewError?.stack)
+        logger.error(`Could not track property view: ${viewError?.message || viewError}`, viewError?.stack)
       }
 
     // Vérifier si l'utilisateur est authentifié pour exposer les données sensibles
@@ -388,7 +476,7 @@ export default class PublicPropertiesController {
       },
     })
     } catch (error) {
-      console.error('Error in PublicPropertiesController.show:', error)
+      logger.error('Error in PublicPropertiesController.show:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération de la propriété',
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -439,9 +527,73 @@ export default class PublicPropertiesController {
         total: formattedPhotos.length,
       })
     } catch (error) {
-      console.error('Error in PublicPropertiesController.photos:', error)
+      logger.error('Error in PublicPropertiesController.photos:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération des photos',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+
+  /**
+   * Récupère les prix minimum et maximum des propriétés disponibles
+   * GET /api/public/properties/price-range
+   */
+  async priceRange({ response }: HttpContext) {
+    try {
+      // Approche directe : récupérer toutes les propriétés avec prix > 0 et calculer min/max
+      // C'est plus fiable que les requêtes SQL brutes qui peuvent varier selon le driver
+      const properties = await Property.query()
+        .whereNotNull('price')
+        .where('price', '>', 0)
+
+      if (properties.length === 0) {
+        // Si aucune propriété disponible, retourner des valeurs par défaut
+        return response.ok({
+          minPrice: 80,
+          maxPrice: 50000,
+        })
+      }
+
+      // Extraire les prix et filtrer les valeurs invalides
+      const prices = properties
+        .map((p) => {
+          // Convertir en nombre, en gérant les cas où price pourrait être une chaîne ou un décimal
+          const price = typeof p.price === 'string' ? parseFloat(p.price) : Number(p.price)
+          return price
+        })
+        .filter((p) => !isNaN(p) && p > 0 && isFinite(p))
+
+      if (prices.length === 0) {
+        return response.ok({
+          minPrice: 80,
+          maxPrice: 50000,
+        })
+      }
+
+      // Calculer min et max - retourner les vraies valeurs de la base de données
+      const minPrice = Math.min(...prices)
+      const maxPrice = Math.max(...prices)
+
+      // Log pour déboguer
+      logger.debug('Price range calculation:', {
+        totalProperties: properties.length,
+        validPrices: prices.length,
+        minPrice,
+        maxPrice,
+        samplePrices: prices.slice(0, 10).sort((a, b) => a - b),
+      })
+
+      // Retourner les vraies valeurs min/max de la base de données
+      // La contrainte de 80$ sera appliquée côté frontend dans le slider
+      return response.ok({
+        minPrice: minPrice,
+        maxPrice: maxPrice,
+      })
+    } catch (error) {
+      logger.error('Error in PublicPropertiesController.priceRange:', error)
+      return response.internalServerError({
+        message: 'Erreur lors de la récupération de la plage de prix',
         error: error instanceof Error ? error.message : 'Unknown error',
       })
     }

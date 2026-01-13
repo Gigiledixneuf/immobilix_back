@@ -1,3 +1,4 @@
+import logger from '@adonisjs/core/services/logger'
 import LoginAttempt from '#models/login_attempt'
 
 export default class LoginLoggingService {
@@ -23,8 +24,7 @@ export default class LoginLoggingService {
       })
     } catch (error) {
       // Ne pas faire échouer le login si le logging échoue
-      // Log dans la console pour le debugging
-      console.error('Erreur lors du logging de la tentative de connexion:', error)
+      logger.error('Erreur lors du logging de la tentative de connexion:', error)
     }
   }
 
