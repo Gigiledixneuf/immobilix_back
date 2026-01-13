@@ -1,6 +1,5 @@
 import { BaseSchema } from '@adonisjs/lucid/schema'
 import { Currencies } from '../../app/models/contract.js'
-import { PaymentMethods, PaymentStatus } from '../../app/models/payment.js'
 
 export default class extends BaseSchema {
   protected tableName = 'payments'
@@ -16,9 +15,9 @@ export default class extends BaseSchema {
         .onDelete('CASCADE')
       table.decimal('amount', 12, 2).notNullable()
       table.enum('currency', Object.values(Currencies)).defaultTo(Currencies.USD)
-      table.enum('payment_method', Object.values(PaymentMethods)).defaultTo(PaymentMethods.HBAR)
+      table.enum('payment_method', ['CASH', 'MOBILE_MONEY', 'HBAR', 'USDC']).defaultTo('HBAR')
       table.string('transaction_id').unique()
-      table.enum('status', Object.values(PaymentStatus)).defaultTo(PaymentStatus.PENDING)
+      table.enum('status', ['PENDING', 'PAID', 'FAILED', 'WAITING_LANDLORD_CONFIRMATION']).defaultTo('PENDING')
       table.timestamps(true, true)
     })
   }
