@@ -14,3 +14,16 @@ export const UpdateVisitRequestStatusValidator = vine.compile(
     scheduled_at: vine.date().optional(), // Date/heure confirmée si acceptée
   })
 )
+
+export const CompleteVisitValidator = vine.compile(
+  vine.object({
+    confirmed_by: vine.enum(['landlord', 'tenant']),
+    notes: vine.string().trim().optional(),
+  })
+)
+
+export const CreateApplicationFromVisitValidator = vine.compile(
+  vine.object({
+    message: vine.string().trim().optional(),
+  })
+)

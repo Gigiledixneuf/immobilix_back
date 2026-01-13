@@ -3,6 +3,7 @@ import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Property from '#models/property'
 import User from '#models/user'
+import VisitRequest from '#models/visit_request'
 
 export enum ApplicationStatus {
   PENDING = 'pending',
@@ -26,6 +27,12 @@ export default class Application extends BaseModel {
   @column()
   declare status: ApplicationStatus
 
+  /**
+   * Lien avec la visite qui a mené à cette candidature
+   */
+  @column()
+  declare visitRequestId: number | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 
@@ -37,6 +44,11 @@ export default class Application extends BaseModel {
 
   @belongsTo(() => User, { foreignKey: 'tenantId' })
   declare tenant: BelongsTo<typeof User>
+
+  @belongsTo(() => VisitRequest, {
+    foreignKey: 'visitRequestId',
+  })
+  declare visitRequest: BelongsTo<typeof VisitRequest> | null
 }
 
 
