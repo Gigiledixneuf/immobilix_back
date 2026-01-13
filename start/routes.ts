@@ -1,4 +1,3 @@
-const WebhooksController = () => import('#controllers/webhooks_controller')
 /*
 |--------------------------------------------------------------------------
 | Routes file
@@ -11,12 +10,12 @@ const WebhooksController = () => import('#controllers/webhooks_controller')
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 const ContractsController = () => import('#controllers/contracts_controller')
-const PaymentsController = () => import('#controllers/payments_controller')
 const PropertiesController = () => import('#controllers/Bailleur/properties_controller')
 const ApplicationsController = () => import('#controllers/applications_controller')
 const VisitRequestsController = () => import('#controllers/VisitRequestsController')
 const VisitTimeSlotsController = () => import('#controllers/VisitTimeSlotsController')
 const LandlordAvailabilitiesController = () => import('#controllers/LandlordAvailabilitiesController')
+const VisitStatisticsController = () => import('#controllers/VisitStatisticsController')
 const PropertyQuestionsController = () => import('#controllers/PropertyQuestionsController')
 const InvitesController = () => import('#controllers/invites_controller')
 const PublicPropertiesController = () => import('#controllers/Public/properties_controller')
@@ -27,7 +26,6 @@ const RegistersController = () => import('#controllers/Auth/registers_controller
 const LogoutController = () => import('#controllers/Auth/logout_controller')
 const ForgotPasswordsController = () => import('#controllers/Auth/forgot_passwords_controller')
 const NotificationsController = () => import('#controllers/notifications_controller')
-const InvoicesController = () => import('#controllers/invoices_controller')
 const DashboardController = () => import('#controllers/Bailleur/dashboard_controller')
 const SearchesController = () => import('#controllers/searches_controller')
 const MessagesController = () => import('#controllers/messages_controller')
@@ -75,8 +73,6 @@ router.get('/uploads/*', async ({ request, response }) => {
       })
     }
     
-    // Logger pour debug
-    console.log(`📁 Serving file: ${extractedPath}`)
     logger.info(`Serving static file: ${extractedPath}`)
     
     // Construire le chemin complet vers le fichier
@@ -99,14 +95,12 @@ router.get('/uploads/*', async ({ request, response }) => {
       })
     }
     
-    console.log(`🔍 Looking for file at: ${normalizedPath}`)
     logger.debug(`Looking for file at: ${normalizedPath}`)
     
     // Vérifier que le fichier existe
     try {
       await fs.access(normalizedPath)
     } catch (accessError: any) {
-      console.error(`❌ File not found: ${normalizedPath}`)
       logger.warn(`File not found: ${normalizedPath}`, { error: accessError?.message })
       return response.status(404).json({
         status: 'error',
@@ -133,7 +127,6 @@ router.get('/uploads/*', async ({ request, response }) => {
     
     const contentType = mimeTypes[ext] || 'application/octet-stream'
     
-    console.log(`✅ Serving file with Content-Type: ${contentType} (${fileContent.length} bytes)`)
     logger.info(`File served successfully: ${extractedPath} (${contentType})`)
     
     return response
@@ -142,7 +135,6 @@ router.get('/uploads/*', async ({ request, response }) => {
       .header('Access-Control-Allow-Origin', '*') // Permettre CORS pour les images
       .send(fileContent)
   } catch (error: any) {
-    console.error(`❌ Error serving static file:`, error)
     logger.error('Error serving static file:', {
       error: error?.message || String(error),
       stack: error?.stack,
@@ -176,6 +168,9 @@ router
     router.resource('/properties', PropertiesController)
     router.get('/tenants', [PropertiesController, 'listTenants'])
     router.get('/properties/:id/applications', [ApplicationsController, 'index'])
+    router.get('/applications/me', [ApplicationsController, 'myApplications'])
+    router.get('/applications/landlord', [ApplicationsController, 'landlordApplications'])
+    router.get('/applications/visit-request/:visitRequestId', [ApplicationsController, 'getByVisitRequest'])
     router.patch('/applications/:id/accept', [ApplicationsController, 'accept'])
     router.patch('/applications/:id/reject', [ApplicationsController, 'reject'])
     router.post('/applications/:id/create-contract', [ApplicationsController, 'createContract'])
@@ -183,13 +178,15 @@ router
     router.post('/applications/:id/accept', [ApplicationsController, 'accept'])
     router.post('/applications/:id/reject', [ApplicationsController, 'reject'])
     router.resource('/contracts', ContractsController)
-    router.post('/contracts/:id/pay-deposit', [ContractsController, 'payDeposit'])
     router.post('/properties/:id/apply', [ApplicationsController, 'apply'])
     // Routes pour les demandes de visite
     router.post('/properties/:id/visit-requests', [VisitRequestsController, 'store'])
     router.get('/properties/:id/visit-requests', [VisitRequestsController, 'index'])
     router.get('/visit-requests/me', [VisitRequestsController, 'myRequests'])
     router.patch('/visit-requests/:id/status', [VisitRequestsController, 'updateStatus'])
+    router.patch('/visit-requests/:id/complete', [VisitRequestsController, 'complete'])
+    router.post('/visit-requests/:id/pre-confirm', [VisitRequestsController, 'preConfirm'])
+    router.post('/visit-requests/:id/create-application', [VisitRequestsController, 'createApplicationFromVisit'])
     router.delete('/visit-requests/:id', [VisitRequestsController, 'destroy'])
     // Routes pour les créneaux horaires disponibles
     router.get('/properties/:id/available-slots', [VisitTimeSlotsController, 'getAvailableSlots'])
@@ -198,6 +195,9 @@ router
     // Routes pour les disponibilités du bailleur
     router.get('/landlord/availabilities', [LandlordAvailabilitiesController, 'index'])
     router.post('/landlord/availabilities', [LandlordAvailabilitiesController, 'store'])
+    // Routes pour les statistiques de visites
+    router.get('/landlord/visit-statistics', [VisitStatisticsController, 'getLandlordStatistics'])
+    router.get('/properties/:id/visit-statistics', [VisitStatisticsController, 'getPropertyStatistics'])
     // Routes pour les questions sur les propriétés
     router.post('/properties/:id/questions', [PropertyQuestionsController, 'store'])
     router.get('/properties/:id/questions', [PropertyQuestionsController, 'index'])
@@ -205,21 +205,13 @@ router
     router.get('/profile', [ProfilesController, 'show'])
     router.put('/profile', [ProfilesController, 'update'])
     router.post('/profile/add-role', [ProfilesController, 'addRole'])
-    router.post('/payments', [PaymentsController, 'store'])
-    router.get('/contracts/:id/payments', [PaymentsController, 'history'])
+    router.post('/profile/change-active-role', [ProfilesController, 'changeActiveRole'])
     router.post('/invites', [InvitesController, 'store'])
     // Routes pour les notifications
     router.get('/notifications', [NotificationsController, 'index'])
     router.put('/notifications/:id/read', [NotificationsController, 'markAsRead'])
     router.put('/notifications/read-all', [NotificationsController, 'markAllAsRead'])
     router.delete('/notifications/:id', [NotificationsController, 'destroy'])
-    // Routes pour les factures
-    router.get('/invoices', [InvoicesController, 'index'])
-    router.get('/invoices/pending', [InvoicesController, 'pending'])
-    router.get('/invoices/:id', [InvoicesController, 'show'])
-    router.post('/invoices', [InvoicesController, 'store'])
-    router.post('/invoices/:id/pay', [InvoicesController, 'pay'])
-    router.put('/invoices/:id/cancel', [InvoicesController, 'cancel'])
     // Route pour le dashboard du bailleur
     router.get('/dashboard', [DashboardController, 'index'])
     // Routes pour les recherches (vues récentes et favoris)
@@ -240,7 +232,7 @@ router
     router.delete('/fcm-tokens/:token', [FcmTokensController, 'destroy'])
   })
   .prefix('/api')
-  .middleware([middleware.auth()])
+  .middleware([middleware.auth(), middleware.roleGuard()])
 
 // Routes d'administration
 router
@@ -260,8 +252,8 @@ router
     router.post('forgot-password', [ForgotPasswordsController, 'requestReset'])
     router.post('reset-password', [ForgotPasswordsController, 'resetPassword'])
     router.get('public/properties', [PublicPropertiesController, 'index'])
+    router.get('public/properties/price-range', [PublicPropertiesController, 'priceRange'])
     router.get('public/properties/:id', [PublicPropertiesController, 'show'])
     router.get('public/properties/:id/photos', [PublicPropertiesController, 'photos'])
-    router.post('webhook/payment', [WebhooksController, 'payment'])
   })
   .prefix('/api')
