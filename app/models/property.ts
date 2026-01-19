@@ -19,7 +19,7 @@ export default class Property extends BaseModel {
   declare id: number
 
   @column()
-  declare user_id: number
+  declare user_id: string
 
   @column()
   declare name: string
@@ -38,6 +38,15 @@ export default class Property extends BaseModel {
 
   @column()
   declare postal_code?: string
+
+  @column()
+  declare latitude?: number
+
+  @column()
+  declare longitude?: number
+
+  @column()
+  declare formatted_address?: string
 
   @column()
   declare type: PropertyType | string

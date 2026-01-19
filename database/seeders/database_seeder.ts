@@ -5,6 +5,7 @@ import RoleSeeder from '#database/seeders/role_seeder'
 import UserSeeder from '#database/seeders/user_seeder'
 import PropertySeeder from '#database/seeders/property_seeder'
 import ContractSeeder from '#database/seeders/contract_seeder'
+import ReviewSeeder from '#database/seeders/review_seeder'
 
 export default class DatabaseSeeder extends BaseSeeder {
   private async runSeeder(Seeder: typeof BaseSeeder) {
@@ -29,6 +30,7 @@ export default class DatabaseSeeder extends BaseSeeder {
     await this.runSeeder(UserSeeder) // 2. Puis les utilisateurs (dépend des rôles)
     await this.runSeeder(PropertySeeder) // 3. Ensuite les propriétés (dépend des utilisateurs)
     await this.runSeeder(ContractSeeder) // 4. Enfin les contrats (dépend des utilisateurs et propriétés)
+    await this.runSeeder(ReviewSeeder) // 5. Avis sur les propriétés
 
     console.log('🎉 Database seeding completed!')
   }

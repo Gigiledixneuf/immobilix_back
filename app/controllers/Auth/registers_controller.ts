@@ -4,6 +4,7 @@ import User from '#models/user'
 import Role from '#models/role'
 import hash from '@adonisjs/core/services/hash'
 import { RegisterValidator } from '#validators/Auth/register'
+import { DateTime } from 'luxon'
 
 export default class RegistersController {
   async register({ request, response }: HttpContext) {
@@ -15,8 +16,13 @@ export default class RegistersController {
 
       // Création de l'utilisateur
       // IMPORTANT: withAuthFinder peut re-hasher le password même s'il est déjà hashé
+      const derivedFullName = data.full_name ?? `${data.first_name} ${data.last_name}`.trim()
       const user = await User.create({
-        fullName: data.full_name,
+        fullName: derivedFullName,
+        firstName: data.first_name,
+        lastName: data.last_name,
+        gender: data.gender,
+        dateOfBirth: DateTime.fromJSDate(data.date_of_birth),
         email: data.email.trim().toLowerCase(),
         portable: data.portable,
         password: hashedPassword,

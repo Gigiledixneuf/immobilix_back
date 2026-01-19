@@ -29,7 +29,7 @@ export default class LandlordAvailabilityService {
    * @returns La nouvelle disponibilité créée
    */
   async createOrUpdateAvailability(
-    landlordId: number,
+    landlordId: string,
     availableDays: string[],
     startTime: string,
     endTime: string,
@@ -69,7 +69,7 @@ export default class LandlordAvailabilityService {
    * @param landlordId ID du bailleur
    * @returns La disponibilité active ou null
    */
-  async getActiveAvailability(landlordId: number): Promise<LandlordAvailability | null> {
+  async getActiveAvailability(landlordId: string): Promise<LandlordAvailability | null> {
     return await LandlordAvailability.query()
       .where('landlord_id', landlordId)
       .where('is_active', true)
@@ -83,7 +83,7 @@ export default class LandlordAvailabilityService {
    * @param landlordId ID du bailleur
    * @param daysAhead Nombre de jours à générer à partir d'aujourd'hui (par défaut: 30)
    */
-  async generateSlotsForAllProperties(landlordId: number, daysAhead: number = 30): Promise<void> {
+  async generateSlotsForAllProperties(landlordId: string, daysAhead: number = 30): Promise<void> {
     const { DateTime } = await import('luxon')
     const Property = (await import('#models/property')).default
 

@@ -14,13 +14,13 @@ export default class Contract extends BaseModel {
   @column({ isPrimary: true })
   declare id: number
   @column()
-  declare user_id: number
+  declare user_id: string | null
 
   @column()
   declare propertyId: number
 
   @column()
-  declare tenantId: number
+  declare tenantId: string
 
   @column.date()
   declare startDate: DateTime

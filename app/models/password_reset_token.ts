@@ -8,7 +8,7 @@ export default class PasswordResetToken extends BaseModel {
   declare id: number
 
   @column()
-  declare userId: number
+  declare userId: string
 
   @column()
   declare token: string

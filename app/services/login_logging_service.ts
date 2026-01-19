@@ -7,7 +7,7 @@ export default class LoginLoggingService {
    */
   static async logAttempt(data: {
     email: string | null
-    userId: number | null
+    userId: string | null
     ipAddress: string | null
     userAgent: string | null
     status: 'success' | 'failed' | 'blocked'

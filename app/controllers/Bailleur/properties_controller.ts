@@ -201,6 +201,9 @@ export default class PropertiesController {
         city: payload.city,
         state: payload.state,
         postal_code: payload.postal_code,
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        formatted_address: payload.formatted_address,
         user_id: user.id,
         creation_step: 1,
         // Valeurs par défaut temporaires
@@ -234,6 +237,9 @@ export default class PropertiesController {
         city: payload.city,
         state: payload.state,
         postal_code: payload.postal_code,
+        latitude: payload.latitude ?? property.latitude,
+        longitude: payload.longitude ?? property.longitude,
+        formatted_address: payload.formatted_address ?? property.formatted_address,
         name: uniqueName,
         // Si les champs obligatoires sont manquants, leur donner des valeurs minimales
         surface: property.surface ?? 1,
@@ -652,6 +658,9 @@ export default class PropertiesController {
       city: payload.city,
       state: payload.state,
       postal_code: payload.postal_code,
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      formatted_address: payload.formatted_address,
       type: payload.type,
       property_use_type: payload.property_use_type,
       surface: payload.surface,
@@ -839,6 +848,11 @@ export default class PropertiesController {
         email: ownerDetails.email,
         portable: ownerDetails.portable,
       },
+      location: {
+        lat: property.latitude,
+        lng: property.longitude,
+        address: property.formatted_address ?? property.address,
+      },
     }
 
     // La réponse inclut maintenant les données du logement et celles du bailleur
@@ -890,6 +904,9 @@ export default class PropertiesController {
       capacity: payload.capacity ?? property.capacity,
       price: payload.price ?? property.price,
       description: payload.description ?? property.description,
+      latitude: payload.latitude ?? property.latitude,
+      longitude: payload.longitude ?? property.longitude,
+      formatted_address: payload.formatted_address ?? property.formatted_address,
       mainPhotoUrl: fileName ?? property.mainPhotoUrl,
     })
 
@@ -944,6 +961,9 @@ export default class PropertiesController {
       city: payload.city,
       state: payload.state,
       postal_code: payload.postal_code,
+      latitude: payload.latitude ?? property.latitude,
+      longitude: payload.longitude ?? property.longitude,
+      formatted_address: payload.formatted_address ?? property.formatted_address,
     })
     await property.save()
 

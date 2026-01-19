@@ -15,7 +15,7 @@ export default class Invite extends BaseModel {
   declare id: number
 
   @column()
-  declare landlordId: number
+  declare landlordId: string
 
   @column()
   declare propertyId: number | null

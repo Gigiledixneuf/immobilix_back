@@ -17,7 +17,7 @@ export default class PropertyQuestion extends BaseModel {
   declare propertyId: number
 
   @column()
-  declare userId: number
+  declare userId: string
 
   @column()
   declare question: string

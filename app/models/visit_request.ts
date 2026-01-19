@@ -24,7 +24,7 @@ export default class VisitRequest extends BaseModel {
   declare propertyId: number
 
   @column()
-  declare tenantId: number
+  declare tenantId: string
 
   @column.date()
   declare requestedDate: DateTime

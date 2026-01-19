@@ -18,7 +18,7 @@ export default class VisitStatisticsService {
   /**
    * Statistiques globales pour un bailleur
    */
-  async getLandlordStatistics(landlordId: number) {
+  async getLandlordStatistics(landlordId: string) {
     try {
       const properties = await Property.query().where('user_id', landlordId).select('id')
       const propertyIds = properties.map((p) => p.id)
@@ -101,7 +101,7 @@ export default class VisitStatisticsService {
   /**
    * Statistiques pour une propriété spécifique
    */
-  async getPropertyStatistics(propertyId: number, landlordId: number) {
+  async getPropertyStatistics(propertyId: number, landlordId: string) {
     try {
       // Vérifier que la propriété appartient au bailleur
       const property = await Property.find(propertyId)

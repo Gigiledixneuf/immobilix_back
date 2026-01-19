@@ -53,6 +53,13 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   /*
   |----------------------------------------------------------
+  | Variables for Mapbox (Backend geocoding)
+  |----------------------------------------------------------
+  */
+  MAPBOX_SECRET_KEY: Env.schema.string(),
+
+  /*
+  |----------------------------------------------------------
   | Variables for Flutterwave (Mobile Money)
   |----------------------------------------------------------
   */

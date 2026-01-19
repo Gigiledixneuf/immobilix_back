@@ -12,7 +12,7 @@ export default class Favorite extends BaseModel {
   declare propertyId: number
 
   @column()
-  declare userId: number
+  declare userId: string
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime

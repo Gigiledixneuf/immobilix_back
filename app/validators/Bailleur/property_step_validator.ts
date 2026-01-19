@@ -6,10 +6,13 @@ import vine from '@vinejs/vine'
 export const Step1AddressValidator = vine.compile(
   vine.object({
     address: vine.string().trim().minLength(5),
-    street_number: vine.string().trim().minLength(1),
+    street_number: vine.string().trim().minLength(1).optional(),
     city: vine.string().trim().minLength(2),
     state: vine.string().trim().minLength(2),
-    postal_code: vine.string().trim().minLength(4),
+    postal_code: vine.string().trim().minLength(4).optional(),
+    latitude: vine.number().min(-90).max(90).optional(),
+    longitude: vine.number().min(-180).max(180).optional(),
+    formatted_address: vine.string().trim().minLength(5).optional(),
   })
 )
 
@@ -135,10 +138,13 @@ export const CompletePropertyValidator = vine.compile(
   vine.object({
     // Étape 1
     address: vine.string().trim().minLength(5),
-    street_number: vine.string().trim().minLength(1),
+    street_number: vine.string().trim().minLength(1).optional(),
     city: vine.string().trim().minLength(2),
     state: vine.string().trim().minLength(2),
-    postal_code: vine.string().trim().minLength(4),
+    postal_code: vine.string().trim().minLength(4).optional(),
+    latitude: vine.number().min(-90).max(90).optional(),
+    longitude: vine.number().min(-180).max(180).optional(),
+    formatted_address: vine.string().trim().minLength(5).optional(),
 
     // Étape 2
     available_from: vine.date({ formats: ['YYYY-MM-DD', 'YYYY-MM-DD HH:mm:ss'] }),

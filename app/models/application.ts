@@ -19,7 +19,7 @@ export default class Application extends BaseModel {
   declare propertyId: number
 
   @column()
-  declare tenantId: number
+  declare tenantId: string
 
   @column()
   declare message: string | null

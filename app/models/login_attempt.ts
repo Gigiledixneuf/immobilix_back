@@ -11,7 +11,7 @@ export default class LoginAttempt extends BaseModel {
   declare email: string | null
 
   @column()
-  declare userId: number | null
+  declare userId: string | null
 
   @column()
   declare ipAddress: string | null

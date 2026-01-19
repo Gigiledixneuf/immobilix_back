@@ -1,6 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { UpdateProfileValidator } from '#validators/profile'
 import Role from '#models/role'
+import app from '@adonisjs/core/services/app'
+import { randomUUID } from 'node:crypto'
 
 export default class ProfilesController {
   /**
@@ -30,6 +32,13 @@ export default class ProfilesController {
     })
 
     user.merge(payload)
+
+    if (payload.firstName || payload.lastName) {
+      const firstName = payload.firstName ?? user.firstName ?? ''
+      const lastName = payload.lastName ?? user.lastName ?? ''
+      user.fullName = `${firstName} ${lastName}`.trim()
+    }
+
     await user.save()
 
     await user.load('roles')
@@ -37,6 +46,49 @@ export default class ProfilesController {
     return response.ok({
       success: true,
       message: 'Profil mis à jour avec succès.',
+      data: user,
+    })
+  }
+
+  /**
+   * Met à jour la photo de profil de l'utilisateur authentifié.
+   */
+  async updatePhoto({ auth, request, response }: HttpContext) {
+    const user = auth.user!
+    const photo = request.file('profile_photo', {
+      size: '5mb',
+      extnames: ['jpg', 'jpeg', 'png', 'webp'],
+    })
+
+    if (!photo) {
+      return response.badRequest({
+        success: false,
+        message: 'La photo de profil est requise.',
+      })
+    }
+
+    const extension = photo.extname || 'jpg'
+    const fileName = `${randomUUID()}.${extension}`
+    await photo.move(app.makePath('uploads/profile_photos'), {
+      name: fileName,
+      overwrite: true,
+    })
+
+    if (!photo.fileName) {
+      return response.badRequest({
+        success: false,
+        message: 'Impossible de sauvegarder la photo de profil.',
+      })
+    }
+
+    const storedPath = `uploads/profile_photos/${photo.fileName}`
+    user.profilePhoto = storedPath
+    user.profilePhotoUrl = storedPath
+    await user.save()
+
+    return response.ok({
+      success: true,
+      message: 'Photo de profil mise à jour avec succès.',
       data: user,
     })
   }

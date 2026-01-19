@@ -52,6 +52,11 @@ HEDERA_MASTER_CONTRACT_ID=0.0.1234567
 # HEDERA_MASTER_CONTRACT_ID=0.0.production-contract
 
 # ============================================
+# Mapbox (Geocoding backend)
+# ============================================
+MAPBOX_SECRET_KEY=sk.xxxxx
+
+# ============================================
 # Flutterwave (Paiements Mobile Money)
 # ============================================
 # Pour testnet (développement)
@@ -112,6 +117,16 @@ Au moins une des options suivantes doit être configurée :
 - Utiliser le réseau `mainnet` pour la production
 - Protéger les clés privées avec un HSM si possible
 - Utiliser des comptes séparés pour testnet et mainnet
+
+### Mapbox (Obligatoire pour géocodage)
+
+| Variable | Description | Notes |
+|----------|-------------|-------|
+| `MAPBOX_SECRET_KEY` | Clé secrète Mapbox (SK) | Utilisée uniquement côté backend |
+
+⚠️ **Important :**
+- Ne jamais exposer la clé secrète côté mobile
+- Toutes les requêtes Mapbox passent par l’API
 
 ### Flutterwave (Optionnel - pour paiements)
 

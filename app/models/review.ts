@@ -12,7 +12,7 @@ export default class Review extends BaseModel {
   declare propertyId: number
 
   @column()
-  declare userId: number
+  declare userId: string
 
   @column()
   declare rating: number

@@ -276,6 +276,11 @@ export default class PublicPropertiesController {
               createdAt: review.createdAt,
             })),
           },
+          location: {
+            lat: property.latitude,
+            lng: property.longitude,
+            address: property.formatted_address ?? property.address,
+          },
         }
       })
 
@@ -473,6 +478,11 @@ export default class PublicPropertiesController {
           author: review.user ? review.user.fullName : 'Anonyme',
           createdAt: review.createdAt,
         })),
+      },
+      location: {
+        lat: property.latitude,
+        lng: property.longitude,
+        address: property.formatted_address ?? property.address,
       },
     })
     } catch (error) {

@@ -44,7 +44,7 @@ export default class VisitFlowService {
    */
   async confirmVisit(
     visitRequestId: number,
-    userId: number,
+    userId: string,
     confirmedBy: 'landlord' | 'tenant',
     notes?: string
   ): Promise<VisitRequest> {
@@ -171,7 +171,7 @@ export default class VisitFlowService {
    * @param visitRequestId ID de la demande de visite
    * @param userId ID du locataire
    */
-  async preConfirmVisit(visitRequestId: number, userId: number): Promise<VisitRequest> {
+  async preConfirmVisit(visitRequestId: number, userId: string): Promise<VisitRequest> {
     const visitRequest = await VisitRequest.query()
       .where('id', visitRequestId)
       .preload('property')
@@ -353,7 +353,7 @@ export default class VisitFlowService {
    */
   async createApplicationFromVisit(
     visitRequestId: number,
-    landlordId: number,
+    landlordId: string,
     message?: string
   ): Promise<Application> {
     const visitRequest = await VisitRequest.query()

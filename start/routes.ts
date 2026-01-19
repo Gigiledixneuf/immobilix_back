@@ -30,6 +30,7 @@ const DashboardController = () => import('#controllers/Bailleur/dashboard_contro
 const SearchesController = () => import('#controllers/searches_controller')
 const MessagesController = () => import('#controllers/messages_controller')
 const FcmTokensController = () => import('#controllers/fcm_tokens_controller')
+const GeocodingController = () => import('#controllers/geocoding_controller')
 
 router.get('/', async () => {
   return {
@@ -165,6 +166,8 @@ router.get('/notifications', async ({ request, response }) => {
 router
   .group(() => {
     router.post('logout', [LogoutController, 'logout'])
+    router.post('/geocode/address', [GeocodingController, 'address'])
+    router.post('/geocode/coordinates', [GeocodingController, 'coordinates'])
     router.resource('/properties', PropertiesController)
     router.get('/tenants', [PropertiesController, 'listTenants'])
     router.get('/properties/:id/applications', [ApplicationsController, 'index'])
@@ -204,6 +207,7 @@ router
     router.patch('/properties/questions/:id/answer', [PropertyQuestionsController, 'answer'])
     router.get('/profile', [ProfilesController, 'show'])
     router.put('/profile', [ProfilesController, 'update'])
+    router.post('/profile/photo', [ProfilesController, 'updatePhoto'])
     router.post('/profile/add-role', [ProfilesController, 'addRole'])
     router.post('/profile/change-active-role', [ProfilesController, 'changeActiveRole'])
     router.post('/invites', [InvitesController, 'store'])

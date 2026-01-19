@@ -12,7 +12,7 @@ export default class PropertyView extends BaseModel {
   declare propertyId: number
 
   @column({ columnName: 'user_id' })
-  declare userId: number
+  declare userId: string
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime

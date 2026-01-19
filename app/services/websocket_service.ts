@@ -12,7 +12,7 @@ import Notification from '#models/notification'
  */
 export default class WebSocketService {
   private wss: WebSocketServer | null = null
-  private connectedUsers: Map<number, Set<WebSocket>> = new Map() // userId -> Set of WebSockets
+  private connectedUsers: Map<string, Set<WebSocket>> = new Map() // userId -> Set of WebSockets
 
   /**
    * Initialise le serveur WebSocket avec noServer: true
@@ -101,7 +101,7 @@ export default class WebSocketService {
   /**
    * Gère une nouvelle connexion WebSocket
    */
-  private handleConnection(ws: WebSocket, req: IncomingMessage, userId: number) {
+  private handleConnection(ws: WebSocket, req: IncomingMessage, userId: string) {
     try {
       logger.info(`WebSocket: User ${userId} connected`)
 
@@ -286,7 +286,7 @@ export default class WebSocketService {
   /**
    * Envoie une notification à un utilisateur spécifique
    */
-  async sendToUser(userId: number, notification: Notification) {
+  async sendToUser(userId: string, notification: Notification) {
     if (!this.wss) {
       logger.warn('WebSocket service not initialized')
       return
@@ -330,7 +330,7 @@ export default class WebSocketService {
    * Envoie un message personnalisé à un utilisateur spécifique
    * Utilisé pour les messages de chat en temps réel
    */
-  async sendMessageToUser(userId: number, messageData: Record<string, any>) {
+  async sendMessageToUser(userId: string, messageData: Record<string, any>) {
     if (!this.wss) {
       logger.warn('WebSocket service not initialized')
       return
@@ -360,7 +360,7 @@ export default class WebSocketService {
   /**
    * Vérifie si un utilisateur est connecté
    */
-  isUserConnected(userId: number): boolean {
+  isUserConnected(userId: string): boolean {
     return this.connectedUsers.has(userId) && this.connectedUsers.get(userId)!.size > 0
   }
 

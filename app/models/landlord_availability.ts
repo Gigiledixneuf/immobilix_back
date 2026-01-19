@@ -14,7 +14,7 @@ export default class LandlordAvailability extends BaseModel {
   declare id: number
 
   @column()
-  declare landlordId: number
+  declare landlordId: string
 
   /**
    * Jours de disponibilité (JSON array)
