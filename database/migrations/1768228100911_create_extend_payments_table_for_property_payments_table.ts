@@ -4,6 +4,8 @@ export default class extends BaseSchema {
   protected tableName = 'payments'
 
   async up() {
+    // Paiements désactivés pour l'instant
+    return
     // Vérifier quelles colonnes existent déjà
     const result: any = await this.db.rawQuery(`SHOW COLUMNS FROM payments`)
     const columns = result[0] || []
@@ -83,6 +85,8 @@ export default class extends BaseSchema {
   }
 
   async down() {
+    // Paiements désactivés pour l'instant
+    return
     // Remettre l'enum status original AVANT de supprimer les colonnes
     // (attention: peut échouer si des données avec waiting_landlord_confirmation existent)
     try {

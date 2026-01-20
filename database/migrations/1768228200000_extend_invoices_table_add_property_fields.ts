@@ -4,6 +4,8 @@ export default class extends BaseSchema {
   protected tableName = 'invoices'
 
   async up() {
+    // Facturation désactivée pour l'instant
+    return
     // Vérifier quelles colonnes existent déjà
     const result: any = await this.db.rawQuery(`SHOW COLUMNS FROM invoices`)
     const columns = result[0] || []
@@ -95,17 +97,19 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    // Supprimer les index
-    try {
+    // Facturation désactivée pour l'instant
+    return
+    // Supprimer les index (uniquement s'ils existent)
+    const indexResult: any = await this.db.rawQuery(`SHOW INDEXES FROM invoices`)
+    const indexRows = indexResult[0] || []
+    const indexNames = new Set(indexRows.map((idx: any) => idx.Key_name))
+
+    if (indexNames.has('invoices_payment_type_property_id_index')) {
       await this.schema.raw(`DROP INDEX invoices_payment_type_property_id_index ON invoices`)
-    } catch (error) {
-      // Ignorer si l'index n'existe pas
     }
-    
-    try {
+
+    if (indexNames.has('invoices_property_id_index')) {
       await this.schema.raw(`DROP INDEX invoices_property_id_index ON invoices`)
-    } catch (error) {
-      // Ignorer si l'index n'existe pas
     }
     
     // Supprimer les contraintes de clé étrangère

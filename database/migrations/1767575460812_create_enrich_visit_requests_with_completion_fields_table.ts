@@ -40,23 +40,51 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    // Restaurer l'enum original
+    const tableResult: any = await this.db.rawQuery(
+      `
+      SELECT 1
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      LIMIT 1
+    `,
+      [this.tableName]
+    )
+    const hasTable = (tableResult[0] || []).length > 0
+    if (!hasTable) {
+      return
+    }
+
     this.defer(async (db) => {
-      await db.rawQuery(
-        "ALTER TABLE `visit_requests` MODIFY COLUMN `status` ENUM('pending', 'accepted', 'rejected', 'completed', 'cancelled') DEFAULT 'pending' NOT NULL"
-      )
+      try {
+        await db.rawQuery(
+          "ALTER TABLE `visit_requests` MODIFY COLUMN `status` ENUM('pending', 'accepted', 'rejected', 'completed', 'cancelled') DEFAULT 'pending' NOT NULL"
+        )
+      } catch {
+        // Ignore if already reverted
+      }
     })
 
-    // Retirer les colonnes ajoutées
-    this.schema.alterTable(this.tableName, (table) => {
-      table.dropColumn('completed_at')
-      table.dropColumn('completed_by_landlord')
-      table.dropColumn('completed_by_tenant')
-      table.dropColumn('tenant_pre_confirmed')
-      table.dropColumn('pre_confirmed_at')
-      table.dropColumn('visit_notes_landlord')
-      table.dropColumn('visit_notes_tenant')
-      table.dropColumn('confirmation_deadline_hours')
-    })
+    const dropColumnIfExists = async (column: string) => {
+      const colResult: any = await this.db.rawQuery(
+        `SHOW COLUMNS FROM ${this.tableName} LIKE '${column}'`
+      )
+      if (colResult[0] && colResult[0].length > 0) {
+        try {
+          await this.db.rawQuery(`ALTER TABLE ${this.tableName} DROP COLUMN ${column}`)
+        } catch {
+          // Ignore if already dropped
+        }
+      }
+    }
+
+    await dropColumnIfExists('completed_at')
+    await dropColumnIfExists('completed_by_landlord')
+    await dropColumnIfExists('completed_by_tenant')
+    await dropColumnIfExists('tenant_pre_confirmed')
+    await dropColumnIfExists('pre_confirmed_at')
+    await dropColumnIfExists('visit_notes_landlord')
+    await dropColumnIfExists('visit_notes_tenant')
+    await dropColumnIfExists('confirmation_deadline_hours')
   }
 }

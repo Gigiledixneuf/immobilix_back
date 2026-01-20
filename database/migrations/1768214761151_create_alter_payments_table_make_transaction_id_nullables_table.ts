@@ -4,6 +4,8 @@ export default class extends BaseSchema {
   protected tableName = 'payments'
 
   async up() {
+    // Paiements désactivés pour l'instant
+    return
     this.schema.alterTable(this.tableName, (table) => {
       // Retirer la contrainte unique d'abord (si elle existe)
       table.dropUnique(['transaction_id'])
@@ -13,6 +15,8 @@ export default class extends BaseSchema {
   }
 
   async down() {
+    // Paiements désactivés pour l'instant
+    return
     this.schema.alterTable(this.tableName, (table) => {
       // Remettre la colonne comme notNullable
       table.string('transaction_id').notNullable().alter()

@@ -19,16 +19,40 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    // Restaurer l'enum original (sans 'completed') d'abord
+    const tableResult: any = await this.db.rawQuery(
+      `
+      SELECT 1
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      LIMIT 1
+    `,
+      [this.tableName]
+    )
+    const hasTable = (tableResult[0] || []).length > 0
+    if (!hasTable) {
+      return
+    }
+
     this.defer(async (db) => {
-      await db.rawQuery(
-        "ALTER TABLE `visit_requests` MODIFY COLUMN `status` ENUM('pending', 'accepted', 'rejected', 'cancelled') DEFAULT 'pending' NOT NULL"
-      )
+      try {
+        await db.rawQuery(
+          "ALTER TABLE `visit_requests` MODIFY COLUMN `status` ENUM('pending', 'accepted', 'rejected', 'cancelled') DEFAULT 'pending' NOT NULL"
+        )
+      } catch {
+        // Ignore if already reverted
+      }
     })
 
-    // Retirer la colonne scheduled_at
-    this.schema.alterTable(this.tableName, (table) => {
-      table.dropColumn('scheduled_at')
-    })
+    const colResult: any = await this.db.rawQuery(
+      `SHOW COLUMNS FROM ${this.tableName} LIKE 'scheduled_at'`
+    )
+    if (colResult[0] && colResult[0].length > 0) {
+      try {
+        await this.db.rawQuery(`ALTER TABLE ${this.tableName} DROP COLUMN scheduled_at`)
+      } catch {
+        // Ignore if already dropped
+      }
+    }
   }
 }
