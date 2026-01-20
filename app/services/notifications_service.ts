@@ -7,7 +7,7 @@ export default class NotificationsService {
    * Crée une notification pour un utilisateur
    */
   async notifyUser(
-    userId: string,
+    userId: number,
     title: string,
     message: string,
     type: string = 'info',
@@ -49,7 +49,7 @@ export default class NotificationsService {
       // Ajouter l'ID de la notification dans les données
       const finalFcmData = {
         ...fcmData,
-        notificationId: String(notification.id),
+        notificationId: String(notification.uuid),
         type: notification.type,
       }
 
@@ -68,7 +68,7 @@ export default class NotificationsService {
    * Utilisé pour les messages qui ne doivent pas apparaître dans la page de notifications
    */
   async sendFcmOnly(
-    userId: string,
+    userId: number,
     title: string,
     message: string,
     data?: Record<string, unknown>

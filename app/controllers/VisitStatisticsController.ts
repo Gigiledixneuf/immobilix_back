@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import VisitStatisticsService from '#services/visit_statistics_service'
 import Property from '#models/property'
+import { ensureUuid } from '#utils/uuid'
 
 /**
  * Contrôleur pour les statistiques de visites
@@ -56,8 +57,8 @@ export default class VisitStatisticsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
 
     if (!property) {
       return response.notFound({ message: 'Propriété introuvable' })
@@ -75,7 +76,7 @@ export default class VisitStatisticsController {
     }
 
     try {
-      const statistics = await this.statisticsService.getPropertyStatistics(propertyId, user.id)
+      const statistics = await this.statisticsService.getPropertyStatistics(property.id, user.id)
 
       return response.ok({
         status: 'success',

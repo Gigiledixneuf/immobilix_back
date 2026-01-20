@@ -5,6 +5,8 @@ import Application, { ApplicationStatus } from '#models/application'
 import Contract from '#models/contract'
 import { DateTime } from 'luxon'
 import NotificationsService from '#services/notifications_service'
+import { ensureUuid } from '#utils/uuid'
+import VisitRequest from '#models/visit_request'
 
 export default class ApplicationsController {
   /**
@@ -22,16 +24,16 @@ export default class ApplicationsController {
       })
     }
 
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
     if (property.user_id !== user.id) {
       return response.forbidden({ message: "Vous n'êtes pas propriétaire de ce logement" })
     }
 
     const apps = await Application.query()
-      .where('property_id', propertyId)
-      .preload('tenant', (t) => t.select(['id', 'fullName', 'email', 'portable']))
+      .where('property_id', property.id)
+      .preload('tenant', (t) => t.select(['id', 'uuid', 'fullName', 'email', 'portable']))
 
     return response.ok({ message: 'Candidatures', data: apps })
   }
@@ -50,7 +52,8 @@ export default class ApplicationsController {
       })
     }
 
-    const application = await Application.find(params.id)
+    ensureUuid(params.id, 'UUID de candidature invalide')
+    const application = await Application.findBy('uuid', params.id)
     if (!application) return response.notFound({ message: 'Candidature introuvable' })
     const property = await Property.find(application.propertyId)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
@@ -76,7 +79,8 @@ export default class ApplicationsController {
       })
     }
 
-    const application = await Application.find(params.id)
+    ensureUuid(params.id, 'UUID de candidature invalide')
+    const application = await Application.findBy('uuid', params.id)
     if (!application) return response.notFound({ message: 'Candidature introuvable' })
     const property = await Property.find(application.propertyId)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
@@ -103,7 +107,8 @@ export default class ApplicationsController {
       })
     }
 
-    const application = await Application.find(params.id)
+    ensureUuid(params.id, 'UUID de candidature invalide')
+    const application = await Application.findBy('uuid', params.id)
     if (!application) return response.notFound({ message: 'Candidature introuvable' })
     const property = await Property.find(application.propertyId)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
@@ -148,15 +153,15 @@ export default class ApplicationsController {
       })
     }
 
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
 
     const payload = await request.validateUsing(ApplyToPropertyValidator)
 
     // Vérifier l'absence de candidature en attente existante
     const existing = await Application.query()
-      .where('property_id', propertyId)
+      .where('property_id', property.id)
       .andWhere('tenant_id', user.id)
       .andWhere('status', ApplicationStatus.PENDING)
       .first()
@@ -165,7 +170,7 @@ export default class ApplicationsController {
     }
 
     const appRow = await Application.create({
-      propertyId: propertyId,
+      propertyId: property.id,
       tenantId: user.id,
       message: payload.message ?? null,
       status: ApplicationStatus.PENDING,
@@ -176,11 +181,11 @@ export default class ApplicationsController {
     await notifier.notifyUser(
       property.user_id,
       'Nouvelle candidature',
-      `Un locataire a postulé pour votre logement #${propertyId}`,
+      `Un locataire a postulé pour votre logement #${property.uuid}`,
       'application',
       {
-        propertyId,
-        applicationId: appRow.id,
+        propertyId: property.uuid,
+        applicationId: appRow.uuid,
       }
     )
 
@@ -208,9 +213,9 @@ export default class ApplicationsController {
     const applications = await Application.query()
       .where('tenant_id', user.id)
       .preload('property', (p) =>
-        p.select(['id', 'name', 'address', 'city', 'price', 'mainPhotoUrl'])
+        p.select(['id', 'uuid', 'name', 'address', 'city', 'price', 'mainPhotoUrl'])
       )
-      .preload('visitRequest', (vr) => vr.select(['id', 'status', 'scheduledAt']))
+      .preload('visitRequest', (vr) => vr.select(['id', 'uuid', 'status', 'scheduledAt']))
       .orderBy('created_at', 'desc')
 
     return response.ok({
@@ -252,10 +257,10 @@ export default class ApplicationsController {
     const applications = await Application.query()
       .whereIn('property_id', propertyIds)
       .preload('property', (p) =>
-        p.select(['id', 'name', 'address', 'city', 'price', 'mainPhotoUrl'])
+        p.select(['id', 'uuid', 'name', 'address', 'city', 'price', 'mainPhotoUrl'])
       )
-      .preload('tenant', (t) => t.select(['id', 'fullName', 'email', 'portable']))
-      .preload('visitRequest', (vr) => vr.select(['id', 'status', 'scheduledAt']))
+      .preload('tenant', (t) => t.select(['id', 'uuid', 'fullName', 'email', 'portable']))
+      .preload('visitRequest', (vr) => vr.select(['id', 'uuid', 'status', 'scheduledAt']))
       .orderBy('created_at', 'desc')
 
     return response.ok({
@@ -274,13 +279,17 @@ export default class ApplicationsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const visitRequestId = Number(params.visitRequestId)
+    ensureUuid(params.visitRequestId, 'UUID de visite invalide')
+    const visitRequest = await VisitRequest.findBy('uuid', params.visitRequestId)
+    if (!visitRequest) {
+      return response.notFound({ message: 'Visite introuvable' })
+    }
     const application = await Application.query()
-      .where('visit_request_id', visitRequestId)
+      .where('visit_request_id', visitRequest.id)
       .preload('property', (p) =>
-        p.select(['id', 'name', 'address', 'city', 'price', 'mainPhotoUrl'])
+        p.select(['id', 'uuid', 'name', 'address', 'city', 'price', 'mainPhotoUrl'])
       )
-      .preload('visitRequest', (vr) => vr.select(['id', 'status', 'scheduledAt']))
+      .preload('visitRequest', (vr) => vr.select(['id', 'uuid', 'status', 'scheduledAt']))
       .first()
 
     if (!application) {

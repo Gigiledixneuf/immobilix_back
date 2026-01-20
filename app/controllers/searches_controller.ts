@@ -3,6 +3,7 @@ import logger from '@adonisjs/core/services/logger'
 import PropertyView from '#models/property_view'
 import Favorite from '#models/favorite'
 import Property from '#models/property'
+import { ensureUuid } from '#utils/uuid'
 
 export default class SearchesController {
   /**
@@ -25,7 +26,7 @@ export default class SearchesController {
         .where('createdAt', '>=', thirtyDaysAgo.toSQL())
         .preload('property', (query) => {
           query.preload('user', (userQuery) => {
-            userQuery.select(['id', 'fullName', 'email', 'portable'])
+            userQuery.select(['id', 'uuid', 'fullName', 'email', 'portable'])
           })
           query.preload('photos')
         })
@@ -50,8 +51,8 @@ export default class SearchesController {
         }
 
         return {
-          id: property.id,
-          userId: property.user_id || 0,
+          id: property.uuid,
+          userId: property.user?.uuid ?? null,
           name: property.name || '',
           address: property.address || '',
           city: property.city || '',
@@ -68,19 +69,19 @@ export default class SearchesController {
               photoUrl = `/uploads/properties/${photoUrl}`
             }
             return {
-              id: photo.id,
+              id: photo.uuid,
               url: photoUrl,
             }
           }) || [],
           amenities: property.amenities?.map((amenity) => ({
-            id: amenity.id,
+            id: amenity.uuid,
             name: amenity.name,
           })) || [],
           createdAt: property.createdAt?.toISO() || new Date().toISOString(),
           updatedAt: property.updatedAt?.toISO() || new Date().toISOString(),
           user: property.user
             ? {
-                id: property.user.id,
+                id: property.user.uuid,
                 fullName: property.user.fullName,
                 email: property.user.email,
                 portable: property.user.portable,
@@ -120,7 +121,7 @@ export default class SearchesController {
         .where('user_id', user.id)
         .preload('property', (query) => {
           query.preload('user', (userQuery) => {
-            userQuery.select(['id', 'fullName', 'email', 'portable'])
+            userQuery.select(['id', 'uuid', 'fullName', 'email', 'portable'])
           })
           query.preload('photos')
         })
@@ -137,8 +138,8 @@ export default class SearchesController {
         }
 
         return {
-          id: property.id,
-          userId: property.user_id || 0,
+          id: property.uuid,
+          userId: property.user?.uuid ?? null,
           name: property.name || '',
           address: property.address || '',
           city: property.city || '',
@@ -155,19 +156,19 @@ export default class SearchesController {
               photoUrl = `/uploads/properties/${photoUrl}`
             }
             return {
-              id: photo.id,
+              id: photo.uuid,
               url: photoUrl,
             }
           }) || [],
           amenities: property.amenities?.map((amenity) => ({
-            id: amenity.id,
+            id: amenity.uuid,
             name: amenity.name,
           })) || [],
           createdAt: property.createdAt?.toISO() || new Date().toISOString(),
           updatedAt: property.updatedAt?.toISO() || new Date().toISOString(),
           user: property.user
             ? {
-                id: property.user.id,
+                id: property.user.uuid,
                 fullName: property.user.fullName,
                 email: property.user.email,
                 portable: property.user.portable,
@@ -200,8 +201,8 @@ export default class SearchesController {
     }
 
     try {
-      const propertyId = Number(params.propertyId)
-      const property = await Property.find(propertyId)
+      ensureUuid(params.propertyId, 'UUID de propriété invalide')
+      const property = await Property.findBy('uuid', params.propertyId)
 
       if (!property) {
         return response.notFound({ message: 'Propriété introuvable' })
@@ -210,25 +211,25 @@ export default class SearchesController {
       // Vérifier si déjà en favoris
       const existing = await Favorite.query()
         .where('user_id', user.id)
-        .where('property_id', propertyId)
+        .where('property_id', property.id)
         .first()
 
       if (existing) {
         return response.ok({
           message: 'Propriété déjà dans les favoris',
-          data: { id: existing.id },
+          data: { id: existing.uuid },
         })
       }
 
       // Ajouter aux favoris
       const favorite = await Favorite.create({
         userId: user.id,
-        propertyId: propertyId,
+        propertyId: property.id,
       })
 
       return response.created({
         message: 'Propriété ajoutée aux favoris',
-        data: { id: favorite.id },
+        data: { id: favorite.uuid },
       })
     } catch (error) {
       return response.internalServerError({
@@ -249,11 +250,15 @@ export default class SearchesController {
     }
 
     try {
-      const propertyId = Number(params.propertyId)
+      ensureUuid(params.propertyId, 'UUID de propriété invalide')
+      const property = await Property.findBy('uuid', params.propertyId)
+      if (!property) {
+        return response.notFound({ message: 'Propriété introuvable' })
+      }
 
       const favorite = await Favorite.query()
         .where('user_id', user.id)
-        .where('property_id', propertyId)
+        .where('property_id', property.id)
         .first()
 
       if (!favorite) {
@@ -284,16 +289,20 @@ export default class SearchesController {
     }
 
     try {
-      const propertyId = Number(params.propertyId)
+      ensureUuid(params.propertyId, 'UUID de propriété invalide')
+      const property = await Property.findBy('uuid', params.propertyId)
+      if (!property) {
+        return response.notFound({ message: 'Propriété introuvable' })
+      }
 
       const favorite = await Favorite.query()
         .where('user_id', user.id)
-        .where('property_id', propertyId)
+        .where('property_id', property.id)
         .first()
 
       return response.ok({
         isFavorite: !!favorite,
-        favoriteId: favorite?.id || null,
+        favoriteId: favorite?.uuid || null,
       })
     } catch (error) {
       return response.internalServerError({

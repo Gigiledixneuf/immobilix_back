@@ -295,7 +295,7 @@ export default class FirebaseService {
    * Envoie une notification push à tous les tokens actifs d'un utilisateur
    */
   static async sendToUser(
-    userId: string,
+    userId: number,
     title: string,
     body: string,
     data?: Record<string, string>

@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Property from '#models/property'
 import User from '#models/user'
 import VisitTimeSlot from '#models/visit_time_slot'
 import logger from '@adonisjs/core/services/logger'
+import { randomUUID } from 'node:crypto'
 
 export enum VisitRequestStatus {
   PENDING = 'pending',
@@ -17,14 +18,24 @@ export enum VisitRequestStatus {
 }
 
 export default class VisitRequest extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(visitRequest: VisitRequest) {
+    if (!visitRequest.uuid) {
+      visitRequest.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
 
-  @column()
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ serializeAs: null })
   declare propertyId: number
 
-  @column()
-  declare tenantId: string
+  @column({ serializeAs: null })
+  declare tenantId: number
 
   @column.date()
   declare requestedDate: DateTime
@@ -45,7 +56,7 @@ export default class VisitRequest extends BaseModel {
    * ID du créneau horaire réservé par cette demande
    * NULL si la demande n'est pas encore liée à un créneau
    */
-  @column()
+  @column({ serializeAs: null })
   declare timeSlotId: number | null
 
   @column.dateTime({ autoCreate: true })

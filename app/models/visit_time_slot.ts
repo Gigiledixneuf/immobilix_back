@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Property from '#models/property'
 import VisitRequest from '#models/visit_request'
+import { randomUUID } from 'node:crypto'
 
 /**
  * Énumération des statuts de créneau horaire
@@ -20,10 +21,20 @@ export enum VisitTimeSlotStatus {
  * Un créneau peut être disponible, réservé (lié à une demande acceptée) ou bloqué manuellement.
  */
 export default class VisitTimeSlot extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(slot: VisitTimeSlot) {
+    if (!slot.uuid) {
+      slot.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
 
-  @column()
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ serializeAs: null })
   declare propertyId: number
 
   /**
@@ -60,7 +71,7 @@ export default class VisitTimeSlot extends BaseModel {
    * ID de la demande de visite qui a réservé ce créneau
    * NULL si le créneau est disponible ou bloqué
    */
-  @column()
+  @column({ serializeAs: null })
   declare visitRequestId: number | null
 
   @column.dateTime({ autoCreate: true })

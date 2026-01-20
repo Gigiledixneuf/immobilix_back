@@ -12,6 +12,7 @@ import { DateTime } from 'luxon'
 import NotificationsService from '#services/notifications_service'
 import VisitSlotService from '#services/visit_slot_service'
 import VisitFlowService from '#services/visit_flow_service'
+import { ensureUuid } from '#utils/uuid'
 
 export default class VisitRequestsController {
   private slotService: VisitSlotService
@@ -39,8 +40,8 @@ export default class VisitRequestsController {
       })
     }
 
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) {
       return response.notFound({ message: 'Logement introuvable' })
     }
@@ -55,7 +56,7 @@ export default class VisitRequestsController {
 
     // Vérifier qu'il n'y a pas déjà une demande en attente pour cette propriété et cette date/heure
     const existing = await VisitRequest.query()
-      .where('property_id', propertyId)
+      .where('property_id', property.id)
       .where('tenant_id', user.id)
       .where('requested_date', requestedDate.toSQLDate()!)
       .where('requested_time', payload.requested_time)
@@ -77,7 +78,7 @@ export default class VisitRequestsController {
     // Trouver ou créer le créneau correspondant
     let timeSlotId: number | null = null
     try {
-      const slot = await this.slotService.findOrCreateSlot(propertyId, requestedDate, startTime)
+      const slot = await this.slotService.findOrCreateSlot(property.id, requestedDate, startTime)
       
       // Vérifier que le créneau est disponible
       if (slot.status !== 'available') {
@@ -95,7 +96,7 @@ export default class VisitRequestsController {
 
     // Créer la demande de visite
     const visitRequest = await VisitRequest.create({
-      propertyId: propertyId,
+      propertyId: property.id,
       tenantId: user.id,
       requestedDate: requestedDate,
       requestedTime: timeWithSeconds,
@@ -118,8 +119,8 @@ export default class VisitRequestsController {
       `Un locataire souhaite visiter votre logement "${property.name}" le ${requestedDate.toLocaleString({ locale: 'fr' })} à ${payload.requested_time}`,
       'visit_request',
       {
-        propertyId,
-        visitRequestId: visitRequest.id,
+        propertyId: property.uuid,
+        visitRequestId: visitRequest.uuid,
       }
     )
 
@@ -133,16 +134,16 @@ export default class VisitRequestsController {
         await websocketService.sendMessageToUser(property.user_id, {
           type: 'new_visit_request',
           visitRequest: {
-            id: visitRequest.id,
-            propertyId: visitRequest.propertyId,
-            tenantId: visitRequest.tenantId,
+            id: visitRequest.uuid,
+            propertyId: property.uuid,
+            tenantId: user.uuid,
             requestedDate: visitRequest.requestedDate.toISODate(),
             requestedTime: visitRequest.requestedTime,
             message: visitRequest.message,
             status: visitRequest.status,
             createdAt: visitRequest.createdAt.toISO(),
             tenant: {
-              id: visitRequest.tenant.id,
+              id: visitRequest.tenant.uuid,
               fullName: visitRequest.tenant.fullName,
               email: visitRequest.tenant.email,
               portable: visitRequest.tenant.portable,
@@ -181,8 +182,8 @@ export default class VisitRequestsController {
       })
     }
 
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) {
       return response.notFound({ message: 'Logement introuvable' })
     }
@@ -193,8 +194,8 @@ export default class VisitRequestsController {
     }
 
     const visitRequests = await VisitRequest.query()
-      .where('property_id', propertyId)
-      .preload('tenant', (t) => t.select(['id', 'fullName', 'email', 'portable', 'profilePhotoUrl']))
+      .where('property_id', property.id)
+      .preload('tenant', (t) => t.select(['id', 'uuid', 'fullName', 'email', 'portable', 'profilePhotoUrl']))
       .preload('timeSlot')
       .orderBy('requested_date', 'asc')
       .orderBy('requested_time', 'asc')
@@ -238,8 +239,12 @@ export default class VisitRequestsController {
       } else {
         visitRequests = await VisitRequest.query()
           .whereIn('property_id', propertyIds)
-          .preload('property', (p) => p.select(['id', 'name', 'address', 'city', 'mainPhotoUrl']))
-          .preload('tenant', (t) => t.select(['id', 'fullName', 'email', 'portable', 'profilePhotoUrl']))
+          .preload('property', (p) =>
+            p.select(['id', 'uuid', 'name', 'address', 'city', 'mainPhotoUrl'])
+          )
+          .preload('tenant', (t) =>
+            t.select(['id', 'uuid', 'fullName', 'email', 'portable', 'profilePhotoUrl'])
+          )
           .preload('timeSlot')
           .orderBy('requested_date', 'asc')
           .orderBy('requested_time', 'asc')
@@ -248,7 +253,9 @@ export default class VisitRequestsController {
       // Le locataire voit seulement ses propres demandes
       visitRequests = await VisitRequest.query()
         .where('tenant_id', user.id)
-        .preload('property', (p) => p.select(['id', 'name', 'address', 'city', 'mainPhotoUrl']))
+        .preload('property', (p) =>
+          p.select(['id', 'uuid', 'name', 'address', 'city', 'mainPhotoUrl'])
+        )
         .orderBy('requested_date', 'asc')
         .orderBy('requested_time', 'asc')
     } else {
@@ -282,9 +289,9 @@ export default class VisitRequestsController {
       })
     }
 
-    const visitRequestId = Number(params.id)
+    ensureUuid(params.id, 'UUID de demande de visite invalide')
     const visitRequest = await VisitRequest.query()
-      .where('id', visitRequestId)
+      .where('uuid', params.id)
       .preload('property')
       .preload('tenant')
       .first()
@@ -375,8 +382,8 @@ export default class VisitRequestsController {
       `Votre demande de visite pour "${visitRequest.property.name}" a été ${statusMessages[payload.status as keyof typeof statusMessages]}`,
       'visit_request',
       {
-        propertyId: visitRequest.propertyId,
-        visitRequestId: visitRequest.id,
+        propertyId: visitRequest.property.uuid,
+        visitRequestId: visitRequest.uuid,
       }
     )
 
@@ -390,8 +397,8 @@ export default class VisitRequestsController {
         await websocketService.sendMessageToUser(visitRequest.tenantId, {
           type: 'visit_request_status_updated',
           visitRequest: {
-            id: visitRequest.id,
-            propertyId: visitRequest.propertyId,
+            id: visitRequest.uuid,
+            propertyId: visitRequest.property.uuid,
             status: visitRequest.status,
             scheduledAt: visitRequest.scheduledAt?.toISO() || null,
             updatedAt: visitRequest.updatedAt.toISO(),
@@ -402,13 +409,13 @@ export default class VisitRequestsController {
         await websocketService.sendMessageToUser(visitRequest.property.user_id, {
           type: 'visit_request_status_updated',
           visitRequest: {
-            id: visitRequest.id,
-            propertyId: visitRequest.propertyId,
+            id: visitRequest.uuid,
+            propertyId: visitRequest.property.uuid,
             status: visitRequest.status,
             scheduledAt: visitRequest.scheduledAt?.toISO() || null,
             updatedAt: visitRequest.updatedAt.toISO(),
             tenant: {
-              id: visitRequest.tenant.id,
+              id: visitRequest.tenant.uuid,
               fullName: visitRequest.tenant.fullName,
               email: visitRequest.tenant.email,
               portable: visitRequest.tenant.portable,
@@ -446,8 +453,8 @@ export default class VisitRequestsController {
       })
     }
 
-    const visitRequestId = Number(params.id)
-    const visitRequest = await VisitRequest.find(visitRequestId)
+    ensureUuid(params.id, 'UUID de demande de visite invalide')
+    const visitRequest = await VisitRequest.findBy('uuid', params.id)
 
     if (!visitRequest) {
       return response.notFound({ message: 'Demande de visite introuvable' })
@@ -491,12 +498,16 @@ export default class VisitRequestsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const visitRequestId = Number(params.id)
+    ensureUuid(params.id, 'UUID de demande de visite invalide')
+    const visitRequestRecord = await VisitRequest.findBy('uuid', params.id)
+    if (!visitRequestRecord) {
+      return response.notFound({ message: 'Demande de visite introuvable' })
+    }
     const payload = await request.validateUsing(CompleteVisitValidator)
 
     try {
       const visitRequest = await this.flowService.confirmVisit(
-        visitRequestId,
+        visitRequestRecord.id,
         user.id,
         payload.confirmed_by,
         payload.notes
@@ -528,15 +539,19 @@ export default class VisitRequestsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const visitRequestId = Number(params.id)
+    ensureUuid(params.id, 'UUID de demande de visite invalide')
+    const visitRequest = await VisitRequest.findBy('uuid', params.id)
+    if (!visitRequest) {
+      return response.notFound({ message: 'Demande de visite introuvable' })
+    }
 
     try {
-      const visitRequest = await this.flowService.preConfirmVisit(visitRequestId, user.id)
+      const updatedVisitRequest = await this.flowService.preConfirmVisit(visitRequest.id, user.id)
 
       return response.ok({
         status: 'success',
         message: 'Pré-confirmation enregistrée',
-        data: visitRequest,
+        data: updatedVisitRequest,
       })
     } catch (error: any) {
       return response.badRequest({
@@ -556,12 +571,16 @@ export default class VisitRequestsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const visitRequestId = Number(params.id)
+    ensureUuid(params.id, 'UUID de demande de visite invalide')
+    const visitRequest = await VisitRequest.findBy('uuid', params.id)
+    if (!visitRequest) {
+      return response.notFound({ message: 'Demande de visite introuvable' })
+    }
     const payload = await request.validateUsing(CreateApplicationFromVisitValidator)
 
     try {
       const application = await this.flowService.createApplicationFromVisit(
-        visitRequestId,
+        visitRequest.id,
         user.id,
         payload.message
       )

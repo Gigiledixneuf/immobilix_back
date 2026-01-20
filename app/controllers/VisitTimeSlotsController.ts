@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import Property from '#models/property'
 import VisitSlotService from '#services/visit_slot_service'
 import { DateTime } from 'luxon'
+import { ensureUuid } from '#utils/uuid'
 
 /**
  * Contrôleur pour la gestion des créneaux horaires de visite
@@ -25,8 +26,8 @@ export default class VisitTimeSlotsController {
    * - end_date: Date de fin (format YYYY-MM-DD, optionnel, défaut: +7 jours)
    */
   async getAvailableSlots({ params, request, response }: HttpContext) {
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     
     if (!property) {
       return response.notFound({ message: 'Logement introuvable' })
@@ -52,7 +53,7 @@ export default class VisitTimeSlotsController {
     }
 
     try {
-      const slots = await this.slotService.getAvailableSlots(propertyId, startDate, endDate)
+      const slots = await this.slotService.getAvailableSlots(property.id, startDate, endDate)
 
       return response.ok({
         status: 'success',
@@ -78,8 +79,8 @@ export default class VisitTimeSlotsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     
     if (!property) {
       return response.notFound({ message: 'Logement introuvable' })
@@ -107,7 +108,7 @@ export default class VisitTimeSlotsController {
 
     try {
       const slotDate = DateTime.fromISO(slotDateStr).startOf('day')
-      const slot = await this.slotService.blockSlot(propertyId, slotDate, startTime)
+      const slot = await this.slotService.blockSlot(property.id, slotDate, startTime)
 
       return response.ok({
         status: 'success',
@@ -132,10 +133,10 @@ export default class VisitTimeSlotsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const slotId = Number(params.id)
+    ensureUuid(params.id, 'UUID de créneau invalide')
     const { default: VisitTimeSlot } = await import('#models/visit_time_slot')
-    
-    const slot = await VisitTimeSlot.find(slotId)
+
+    const slot = await VisitTimeSlot.findBy('uuid', params.id)
     if (!slot) {
       return response.notFound({ message: 'Créneau introuvable' })
     }
@@ -153,7 +154,7 @@ export default class VisitTimeSlotsController {
     }
 
     try {
-      await this.slotService.unblockSlot(slotId)
+      await this.slotService.unblockSlot(slot.id)
 
       return response.ok({
         status: 'success',

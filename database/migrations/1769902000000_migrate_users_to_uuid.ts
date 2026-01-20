@@ -16,10 +16,6 @@ export default class extends BaseSchema {
     { table: 'contracts', column: 'user_id', nullable: true, onDelete: 'CASCADE' },
     { table: 'applications', column: 'tenant_id', nullable: false, onDelete: 'CASCADE' },
     { table: 'notifications', column: 'user_id', nullable: false, onDelete: 'CASCADE' },
-    { table: 'invoices', column: 'tenant_id', nullable: false, onDelete: 'CASCADE' },
-    { table: 'invoices', column: 'landlord_id', nullable: false, onDelete: 'CASCADE' },
-    { table: 'payments', column: 'tenant_id', nullable: true, onDelete: 'CASCADE' },
-    { table: 'payments', column: 'landlord_id', nullable: true, onDelete: 'CASCADE' },
     { table: 'invites', column: 'landlord_id', nullable: false, onDelete: 'CASCADE' },
     { table: 'reviews', column: 'user_id', nullable: false, onDelete: 'CASCADE' },
     { table: 'visit_requests', column: 'tenant_id', nullable: false, onDelete: 'CASCADE' },
@@ -76,6 +72,9 @@ export default class extends BaseSchema {
   }
 
   async up() {
+    // Deprecated: replaced by public UUID strategy (keep INT PKs).
+    // Intentionally no-op to avoid swapping primary keys.
+    return
     await this.schema.raw('SET FOREIGN_KEY_CHECKS = 0')
 
     const usersHasUuid = await this.hasColumn('users', 'uuid')
@@ -190,18 +189,56 @@ export default class extends BaseSchema {
 
     const hasUuidColumn = await this.hasColumn('users', 'uuid')
     if (hasUuidColumn) {
-      try {
-        await this.schema.raw(`ALTER TABLE users DROP PRIMARY KEY`)
-      } catch {
-        // Ignore if already dropped
+      const idColumn = await this.getColumn('users', 'id')
+      const idType = String(idColumn?.Type || '').toLowerCase()
+      const idIsUuid = idType.includes('char(36)') || idType.includes('varchar(36)')
+      const legacyExists = await this.hasColumn('users', 'legacy_id')
+
+      if (idIsUuid) {
+        // UUID already swapped into id, drop leftover uuid column if present
+        try {
+          await this.schema.raw(`ALTER TABLE users DROP COLUMN uuid`)
+        } catch {
+          // Ignore if already dropped
+        }
+      } else {
+        try {
+          await this.schema.raw(`ALTER TABLE users DROP PRIMARY KEY`)
+        } catch {
+          // Ignore if already dropped
+        }
+
+        if (!legacyExists) {
+          await this.schema.raw(`ALTER TABLE users CHANGE COLUMN id legacy_id INT UNSIGNED NULL`)
+        } else {
+          const legacyTemp = await this.hasColumn('users', 'id_legacy_int')
+          if (!legacyTemp) {
+            await this.schema.raw(`ALTER TABLE users CHANGE COLUMN id id_legacy_int INT UNSIGNED NULL`)
+          }
+        }
+
+        await this.schema.raw(`ALTER TABLE users CHANGE COLUMN uuid id CHAR(36) NOT NULL`)
+
+        if (legacyExists) {
+          try {
+            await this.schema.raw(`ALTER TABLE users DROP COLUMN id_legacy_int`)
+          } catch {
+            // Ignore if already dropped
+          }
+        }
       }
-      await this.schema.raw(`ALTER TABLE users CHANGE COLUMN id legacy_id INT UNSIGNED NULL`)
-      await this.schema.raw(`ALTER TABLE users CHANGE COLUMN uuid id CHAR(36) NOT NULL`)
+
       const pkColumns = await this.getPrimaryKeyColumns('users')
       if (!(pkColumns.length === 1 && pkColumns[0] === 'id')) {
         await this.schema.raw(`ALTER TABLE users ADD PRIMARY KEY (id)`)
       }
-      await this.schema.raw(`ALTER TABLE users ADD UNIQUE KEY users_legacy_id_unique (legacy_id)`)
+      if (await this.hasColumn('users', 'legacy_id')) {
+        try {
+          await this.schema.raw(`ALTER TABLE users ADD UNIQUE KEY users_legacy_id_unique (legacy_id)`)
+        } catch {
+          // Ignore if already exists
+        }
+      }
     }
 
     for (const ref of this.userReferences) {
@@ -217,8 +254,6 @@ export default class extends BaseSchema {
 
     await this.schema.raw(`CREATE INDEX notifications_user_id_is_read_index ON notifications(user_id, is_read)`)
     await this.schema.raw(`CREATE INDEX notifications_user_id_created_at_index ON notifications(user_id, created_at)`)
-    await this.schema.raw(`CREATE INDEX invoices_tenant_id_status_index ON invoices(tenant_id, status)`)
-    await this.schema.raw(`CREATE INDEX invoices_landlord_id_status_index ON invoices(landlord_id, status)`)
     await this.schema.raw(`CREATE INDEX visit_requests_tenant_id_index ON visit_requests(tenant_id)`)
     await this.schema.raw(`CREATE INDEX fcm_tokens_user_id_is_active_index ON fcm_tokens(user_id, is_active)`)
     await this.schema.raw(`CREATE INDEX landlord_availabilities_landlord_id_index ON landlord_availabilities(landlord_id)`)
@@ -233,6 +268,8 @@ export default class extends BaseSchema {
   }
 
   async down() {
+    // Deprecated: replaced by public UUID strategy (keep INT PKs).
+    return
     await this.schema.raw('SET FOREIGN_KEY_CHECKS = 0')
 
     for (const ref of this.userReferences) {

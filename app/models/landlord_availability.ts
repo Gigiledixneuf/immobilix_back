@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import User from '#models/user'
+import { randomUUID } from 'node:crypto'
 
 /**
  * Modèle LandlordAvailability
@@ -10,11 +11,21 @@ import User from '#models/user'
  * Un bailleur peut configurer ses jours et heures de travail, ainsi que la durée standard d'une visite.
  */
 export default class LandlordAvailability extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(availability: LandlordAvailability) {
+    if (!availability.uuid) {
+      availability.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
 
-  @column()
-  declare landlordId: string
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ serializeAs: null })
+  declare landlordId: number
 
   /**
    * Jours de disponibilité (JSON array)

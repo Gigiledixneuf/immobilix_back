@@ -1,10 +1,10 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
 import Property from '#models/property'
-import Review from '#models/review'
 import PropertyView from '#models/property_view'
 import PropertyPhoto from '#models/property_photo'
-import { PropertyPhotoService } from '#services/property_photo_service'
+import ReviewService from '#services/review_service'
+import { ensureUuid } from '#utils/uuid'
 
 export default class PublicPropertiesController {
   /**
@@ -50,24 +50,9 @@ export default class PublicPropertiesController {
 
       let query = Property.query()
         .preload('user', (userQuery) => {
-          userQuery.select(['id', 'fullName', 'email', 'portable'])
+          userQuery.select(['id', 'uuid', 'fullName', 'email', 'portable'])
         })
         .preload('amenities')
-
-      // Essayer de précharger les reviews, mais ne pas échouer si la table n'existe pas
-      try {
-        query = query.preload('reviews', (reviewQuery) => {
-          reviewQuery
-            .preload('user', (userQuery) => {
-              userQuery.select(['id', 'fullName'])
-            })
-            .orderBy('created_at', 'desc')
-            .limit(5) // Limiter à 5 derniers commentaires pour la liste
-        })
-      } catch (e) {
-        // Si la table reviews n'existe pas encore, continuer sans précharger
-        logger.debug('Reviews table not available, continuing without reviews preload')
-      }
 
     // Recherche par nom, ville ou adresse
     if (search) {
@@ -168,58 +153,14 @@ export default class PublicPropertiesController {
     const properties = await query.orderBy('created_at', 'desc').paginate(page, limit)
     const propertyIds = properties.all().map((p) => p.id)
 
-    // OPTIMISATION: Récupérer toutes les reviews en une seule requête (évite N+1)
-    let reviewsByProperty: Map<number, any[]> = new Map()
-    let reviewStatsByProperty: Map<number, { total: number; average: number }> = new Map()
-
-    if (propertyIds.length > 0) {
-      try {
-        // Récupérer toutes les reviews pour toutes les propriétés en une requête
-        const allReviews = await Review.query()
-          .whereIn('property_id', propertyIds)
-          .preload('user', (userQuery) => {
-            userQuery.select(['id', 'fullName'])
-          })
-          .orderBy('created_at', 'desc')
-
-        // Grouper les reviews par property_id
-        allReviews.forEach((review) => {
-          const propId = review.propertyId
-          if (!reviewsByProperty.has(propId)) {
-            reviewsByProperty.set(propId, [])
-          }
-          reviewsByProperty.get(propId)!.push(review)
-        })
-
-        // Calculer les statistiques pour chaque propriété
-        propertyIds.forEach((propId) => {
-          const propReviews = reviewsByProperty.get(propId) || []
-          const totalReviews = propReviews.length
-          const averageRating =
-            totalReviews > 0
-              ? propReviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews
-              : 0
-
-          reviewStatsByProperty.set(propId, {
-            total: totalReviews,
-            average: averageRating,
-          })
-        })
-      } catch (e) {
-        // Si la table reviews n'existe pas, utiliser des valeurs par défaut
-        logger.debug('Reviews table not available, continuing without reviews')
-      }
-    }
+    const reviewService = new ReviewService()
+    const { statsByProperty, reviewsByProperty } =
+      await reviewService.getPropertyReviewSummaries(propertyIds, 5)
 
     // Construire la réponse avec les données pré-chargées
     const propertiesWithStats = properties.all().map((property) => {
-      const stats = reviewStatsByProperty.get(property.id) || { total: 0, average: 0 }
-      const propertyReviews = reviewsByProperty.get(property.id) || []
-      
-      // Utiliser les reviews préchargées depuis la relation ou depuis notre Map
-      const reviewsList = property.reviews && property.reviews.length > 0 
-        ? property.reviews.slice(0, 5) // Limiter à 5 pour la liste
-        : propertyReviews.slice(0, 5)
+      const stats = statsByProperty.get(property.id) || { total: 0, average: 0 }
+      const reviewsList = reviewsByProperty.get(property.id) || []
 
         // Formater l'URL de l'image si elle existe
         let imageUrl = property.mainPhotoUrl
@@ -234,7 +175,7 @@ export default class PublicPropertiesController {
         }
 
         return {
-          id: property.id,
+          id: property.uuid,
           name: property.name,
           address: property.address,
           city: property.city,
@@ -249,13 +190,13 @@ export default class PublicPropertiesController {
           createdAt: property.createdAt,
           // Commodités
           amenities: property.amenities ? property.amenities.map((a: any) => ({
-            id: a.id,
+            id: a.uuid,
             name: a.name,
           })) : [],
           // Informations du bailleur (données publiques uniquement pour visiteurs)
           landlord: property.user
             ? {
-                id: property.user.id,
+                id: property.user.uuid,
                 fullName: property.user.fullName,
                 // Email et téléphone uniquement pour utilisateurs authentifiés
                 ...(isAuthenticated && {
@@ -269,7 +210,7 @@ export default class PublicPropertiesController {
             averageRating: Math.round(stats.average * 10) / 10, // Arrondir à 1 décimale
             totalReviews: stats.total,
             comments: reviewsList.map((review) => ({
-              id: review.id,
+              id: review.uuid,
               rating: review.rating,
               comment: review.comment,
               author: review.user ? review.user.fullName : 'Anonyme',
@@ -303,27 +244,15 @@ export default class PublicPropertiesController {
    */
   async show({ params, response, auth }: HttpContext) {
     try {
+      ensureUuid(params.id, 'UUID de propriété invalide')
       let query = Property.query()
-        .where('id', params.id)
+        .where('uuid', params.id)
         .preload('user', (userQuery) => {
-          userQuery.select(['id', 'fullName', 'email', 'portable'])
+          userQuery.select(['id', 'uuid', 'fullName', 'email', 'portable'])
         })
         .preload('photos', (photoQuery) => {
           photoQuery.orderBy('display_order', 'asc')
         })
-
-      // Essayer de précharger les reviews, mais ne pas échouer si la table n'existe pas
-      try {
-        query = query.preload('reviews', (reviewQuery) => {
-          reviewQuery
-            .preload('user', (userQuery) => {
-              userQuery.select(['id', 'fullName'])
-            })
-            .orderBy('created_at', 'desc')
-        })
-      } catch (e) {
-        logger.debug('Reviews table not available, continuing without reviews preload')
-      }
 
       const property = await query.first()
 
@@ -331,25 +260,11 @@ export default class PublicPropertiesController {
         return response.notFound({ message: 'Property not found' })
       }
 
-      // Calculer les statistiques des avis
-      let totalReviews = 0
-      let averageRating = 0
-      let reviewsList: any[] = []
-
-      try {
-        const reviews = await Review.query().where('property_id', property.id).select('rating')
-        totalReviews = reviews.length
-        averageRating =
-          totalReviews > 0
-            ? reviews.reduce((sum, review) => sum + review.rating, 0) / totalReviews
-            : 0
-        reviewsList = property.reviews || []
-      } catch (e) {
-        logger.debug(`Reviews not available for property ${property.id}: ${e}`)
-        totalReviews = 0
-        averageRating = 0
-        reviewsList = []
-      }
+      const reviewService = new ReviewService()
+      const reviewResult = await reviewService.getPropertyReviews(property.id)
+      const totalReviews = reviewResult.stats.total
+      const averageRating = reviewResult.stats.average
+      const reviewsList = reviewResult.reviews
 
       // Tracker la vue si l'utilisateur est authentifié
       try {
@@ -434,7 +349,7 @@ export default class PublicPropertiesController {
         }
       }
       return {
-        id: photo.id,
+        id: photo.uuid,
         url: photoUrl,
         display_order: photo.display_order,
         is_main: photo.is_main,
@@ -442,7 +357,7 @@ export default class PublicPropertiesController {
     })
 
     return response.ok({
-      id: property.id,
+      id: property.uuid,
       name: property.name,
       address: property.address,
       city: property.city,
@@ -458,7 +373,7 @@ export default class PublicPropertiesController {
       // Informations du bailleur (données publiques uniquement pour visiteurs)
       landlord: property.user
         ? {
-            id: property.user.id,
+            id: property.user.uuid,
             fullName: property.user.fullName,
             // Email et téléphone uniquement pour utilisateurs authentifiés
             ...(isAuthenticated && {
@@ -472,7 +387,7 @@ export default class PublicPropertiesController {
         averageRating: Math.round(averageRating * 10) / 10,
         totalReviews: totalReviews,
         comments: reviewsList.map((review) => ({
-          id: review.id,
+          id: review.uuid,
           rating: review.rating,
           comment: review.comment,
           author: review.user ? review.user.fullName : 'Anonyme',
@@ -500,7 +415,8 @@ export default class PublicPropertiesController {
    */
   async photos({ params, response }: HttpContext) {
     try {
-      const property = await Property.find(params.id)
+      ensureUuid(params.id, 'UUID de propriété invalide')
+      const property = await Property.findBy('uuid', params.id)
 
       if (!property) {
         return response.notFound({ message: 'Property not found' })
@@ -524,7 +440,7 @@ export default class PublicPropertiesController {
           }
         }
         return {
-          id: photo.id,
+          id: photo.uuid,
           url: photoUrl,
           display_order: photo.display_order,
           is_main: photo.is_main,
@@ -532,7 +448,7 @@ export default class PublicPropertiesController {
       })
 
       return response.ok({
-        property_id: property.id,
+        property_id: property.uuid,
         photos: formattedPhotos,
         total: formattedPhotos.length,
       })

@@ -13,6 +13,7 @@ import {
   CompletePropertyValidator,
 } from '#validators/Bailleur/property_step_validator'
 import Property from '#models/property'
+import { ensureUuid } from '#utils/uuid'
 import PropertyPhoto from '#models/property_photo'
 import PropertyAmenity from '#models/property_amenity'
 import app from '@adonisjs/core/services/app'
@@ -869,7 +870,8 @@ export default class PropertiesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    const property = await Property.find(params.id)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
     if (property.user_id !== user.id)
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
@@ -1242,7 +1244,8 @@ export default class PropertiesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    const property = await Property.find(params.id)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
     if (property.user_id !== user.id)
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })

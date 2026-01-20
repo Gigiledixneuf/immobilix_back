@@ -12,7 +12,7 @@ import Notification from '#models/notification'
  */
 export default class WebSocketService {
   private wss: WebSocketServer | null = null
-  private connectedUsers: Map<string, Set<WebSocket>> = new Map() // userId -> Set of WebSockets
+  private connectedUsers: Map<number, Set<WebSocket>> = new Map() // userId -> Set of WebSockets
 
   /**
    * Initialise le serveur WebSocket avec noServer: true
@@ -101,7 +101,7 @@ export default class WebSocketService {
   /**
    * Gère une nouvelle connexion WebSocket
    */
-  private handleConnection(ws: WebSocket, req: IncomingMessage, userId: string) {
+  private handleConnection(ws: WebSocket, req: IncomingMessage, userId: number) {
     try {
       logger.info(`WebSocket: User ${userId} connected`)
 
@@ -206,7 +206,7 @@ export default class WebSocketService {
       // L'ID du token peut être en base64 (MTI0 = 124 en base64)
       // Essayer de décoder d'abord, sinon utiliser directement
       let tokenId: string | number = prefixAndId.replace('oat_', '')
-      const tokenHash = tokenParts[1]
+      const tokenSecret = tokenParts[1]
 
       // Essayer de décoder l'ID si c'est du base64
       try {
@@ -250,8 +250,8 @@ export default class WebSocketService {
       }
 
       // Vérifier le hash du token
-      // Le hash stocké dans la DB est le hash du token complet
-      const isValid = await hash.verify(tokenRecord.hash, tokenString)
+      // Le hash stocké est celui du secret, pas du token complet
+      const isValid = await hash.verify(tokenRecord.hash, tokenSecret)
 
       if (!isValid) {
         logger.warn(`Token hash mismatch: ${tokenId}`)
@@ -286,7 +286,7 @@ export default class WebSocketService {
   /**
    * Envoie une notification à un utilisateur spécifique
    */
-  async sendToUser(userId: string, notification: Notification) {
+  async sendToUser(userId: number, notification: Notification) {
     if (!this.wss) {
       logger.warn('WebSocket service not initialized')
       return
@@ -330,7 +330,7 @@ export default class WebSocketService {
    * Envoie un message personnalisé à un utilisateur spécifique
    * Utilisé pour les messages de chat en temps réel
    */
-  async sendMessageToUser(userId: string, messageData: Record<string, any>) {
+  async sendMessageToUser(userId: number, messageData: Record<string, any>) {
     if (!this.wss) {
       logger.warn('WebSocket service not initialized')
       return
@@ -360,7 +360,7 @@ export default class WebSocketService {
   /**
    * Vérifie si un utilisateur est connecté
    */
-  isUserConnected(userId: string): boolean {
+  isUserConnected(userId: number): boolean {
     return this.connectedUsers.has(userId) && this.connectedUsers.get(userId)!.size > 0
   }
 

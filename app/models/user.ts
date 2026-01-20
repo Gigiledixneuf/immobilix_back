@@ -19,12 +19,15 @@ const AuthFinder = withAuthFinder(() => hash.use('scrypt'), {
 export default class User extends compose(BaseModel, AuthFinder) {
   @beforeCreate()
   static assignUuid(user: User) {
-    if (!user.id) {
-      user.id = randomUUID()
+    if (!user.uuid) {
+      user.uuid = randomUUID()
     }
   }
-  @column({ isPrimary: true })
-  declare id: string
+  @column({ isPrimary: true, serializeAs: null })
+  declare id: number
+
+  @column({ serializeAs: 'id' })
+  declare uuid: string
 
   @column()
   declare fullName: string | null

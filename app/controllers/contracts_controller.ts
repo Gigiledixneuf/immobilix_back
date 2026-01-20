@@ -6,6 +6,7 @@ import User from '#models/user'
 import { StoreContractValidator, UpdateContractValidator } from '#validators/contract'
 import { DateTime } from 'luxon'
 import HederaService, { HederaContractData } from '#services/hedera_service'
+import { ensureUuid } from '#utils/uuid'
 
 @inject()
 export default class ContractsController {
@@ -79,13 +80,15 @@ export default class ContractsController {
     const payload = await request.validateUsing(StoreContractValidator)
 
     // Vérifier que la propriété existe
-    const property = await Property.find(payload.propertyId)
+    ensureUuid(payload.propertyId, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', payload.propertyId)
     if (!property) {
       return response.notFound({ message: 'Propriété introuvable' })
     }
 
     // Vérifier que le locataire existe et a le bon rôle
-    const tenant = await User.find(payload.tenantId)
+    ensureUuid(payload.tenantId, 'UUID de locataire invalide')
+    const tenant = await User.findBy('uuid', payload.tenantId)
     if (!tenant) {
       return response.notFound({ message: 'Locataire introuvable' })
     }
@@ -100,7 +103,7 @@ export default class ContractsController {
 
     // Vérifier que le bailleur peut créer un contrat pour cette propriété
     const userProperty = await Property.query()
-      .where('id', payload.propertyId)
+      .where('id', property.id)
       .where('user_id', user.id)
       .first()
 
@@ -136,7 +139,7 @@ export default class ContractsController {
 
     // Vérifier les chevauchements de contrats
     const existingContract = await Contract.query()
-      .where('propertyId', payload.propertyId)
+      .where('propertyId', property.id)
       .where('status', 'active')
       .where((query) => {
         if (startDate) {
@@ -156,8 +159,8 @@ export default class ContractsController {
     // Création du contrat dans la base de données
     const contract = await Contract.create({
       user_id: user.id, // ID du bailleur (propriétaire)
-      propertyId: payload.propertyId,
-      tenantId: payload.tenantId,
+      propertyId: property.id,
+      tenantId: tenant.id,
       startDate: startDate,
       endDate: endDate || null,
       description: payload.description,
@@ -266,7 +269,8 @@ export default class ContractsController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    const contract = await Contract.find(params.id)
+    ensureUuid(params.id, 'UUID de contrat invalide')
+    const contract = await Contract.findBy('uuid', params.id)
     if (!contract) {
       return response.notFound({ message: 'Contrat introuvable' })
     }
@@ -294,7 +298,8 @@ export default class ContractsController {
 
     // Vérifications supplémentaires si modification de propriété
     if (payload.propertyId !== undefined) {
-      const newProperty = await Property.find(payload.propertyId)
+      ensureUuid(payload.propertyId, 'UUID de propriété invalide')
+      const newProperty = await Property.findBy('uuid', payload.propertyId)
       if (!newProperty) {
         return response.notFound({ message: 'Nouvelle propriété introuvable' })
       }
@@ -308,7 +313,8 @@ export default class ContractsController {
     }
 
     if (payload.tenantId !== undefined) {
-      const tenant = await User.find(payload.tenantId)
+      ensureUuid(payload.tenantId, 'UUID de locataire invalide')
+      const tenant = await User.findBy('uuid', payload.tenantId)
       if (!tenant) {
         return response.notFound({ message: 'Locataire introuvable' })
       }
@@ -388,7 +394,8 @@ export default class ContractsController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    const contract = await Contract.find(params.id)
+    ensureUuid(params.id, 'UUID de contrat invalide')
+    const contract = await Contract.findBy('uuid', params.id)
     if (!contract) {
       return response.notFound({ message: 'Contrat introuvable' })
     }

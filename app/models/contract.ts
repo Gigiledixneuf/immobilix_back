@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import Property from '#models/property'
 import User from '#models/user'
 import VisitRequest from '#models/visit_request'
+import { randomUUID } from 'node:crypto'
 
 export enum Currencies {
   USD = 'USD',
@@ -11,16 +12,27 @@ export enum Currencies {
 }
 
 export default class Contract extends BaseModel {
-  @column({ isPrimary: true })
-  declare id: number
-  @column()
-  declare user_id: string | null
+  @beforeCreate()
+  static assignUuid(contract: Contract) {
+    if (!contract.uuid) {
+      contract.uuid = randomUUID()
+    }
+  }
 
-  @column()
+  @column({ isPrimary: true, serializeAs: null })
+  declare id: number
+
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ serializeAs: null })
+  declare user_id: number | null
+
+  @column({ serializeAs: null })
   declare propertyId: number
 
-  @column()
-  declare tenantId: string
+  @column({ serializeAs: null })
+  declare tenantId: number
 
   @column.date()
   declare startDate: DateTime
@@ -56,7 +68,7 @@ export default class Contract extends BaseModel {
   /**
    * Lien avec la visite qui a mené à ce contrat
    */
-  @column()
+  @column({ serializeAs: null })
   declare visitRequestId: number | null
 
   @column.dateTime({ autoCreate: true })

@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import User from '#models/user'
 import { UpdateProfileValidator } from '#validators/profile'
+import { ensureUuid } from '#utils/uuid'
 
 export default class AdminUsersController {
   /**
@@ -35,7 +36,11 @@ export default class AdminUsersController {
       return response.forbidden({ message: 'Accès refusé.' })
     }
 
-    const targetUser = await User.findOrFail(params.id)
+    ensureUuid(params.id, 'UUID utilisateur invalide')
+    const targetUser = await User.findBy('uuid', params.id)
+    if (!targetUser) {
+      return response.notFound({ message: 'Utilisateur introuvable' })
+    }
     await targetUser.load('roles')
 
     return response.ok(targetUser)
@@ -55,7 +60,11 @@ export default class AdminUsersController {
       return response.forbidden({ message: 'Accès refusé.' })
     }
 
-    const targetUser = await User.findOrFail(params.id)
+    ensureUuid(params.id, 'UUID utilisateur invalide')
+    const targetUser = await User.findBy('uuid', params.id)
+    if (!targetUser) {
+      return response.notFound({ message: 'Utilisateur introuvable' })
+    }
 
     const payload = await request.validateUsing(UpdateProfileValidator, {
       meta: {

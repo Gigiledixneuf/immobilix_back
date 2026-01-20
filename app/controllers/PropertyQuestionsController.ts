@@ -3,6 +3,7 @@ import { CreatePropertyQuestionValidator, AnswerPropertyQuestionValidator } from
 import Property from '#models/property'
 import PropertyQuestion, { PropertyQuestionStatus } from '#models/property_question'
 import NotificationsService from '#services/notifications_service'
+import { ensureUuid } from '#utils/uuid'
 
 export default class PropertyQuestionsController {
   /**
@@ -15,8 +16,8 @@ export default class PropertyQuestionsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) {
       return response.notFound({ message: 'Logement introuvable' })
     }
@@ -25,7 +26,7 @@ export default class PropertyQuestionsController {
 
     // Créer la question
     const question = await PropertyQuestion.create({
-      propertyId: propertyId,
+      propertyId: property.id,
       userId: user.id,
       question: payload.question,
       status: PropertyQuestionStatus.PENDING,
@@ -39,8 +40,8 @@ export default class PropertyQuestionsController {
       `Un utilisateur a posé une question sur "${property.name}"`,
       'property_question',
       {
-        propertyId,
-        questionId: question.id,
+        propertyId: property.uuid,
+        questionId: question.uuid,
       }
     )
 
@@ -65,8 +66,8 @@ export default class PropertyQuestionsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const propertyId = Number(params.id)
-    const property = await Property.find(propertyId)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) {
       return response.notFound({ message: 'Logement introuvable' })
     }
@@ -74,9 +75,9 @@ export default class PropertyQuestionsController {
     // Seul le propriétaire peut voir toutes les questions
     // Les autres utilisateurs voient seulement leurs propres questions
     let query = PropertyQuestion.query()
-      .where('property_id', propertyId)
+      .where('property_id', property.id)
       .preload('user', (userQuery) => {
-        userQuery.select(['id', 'fullName', 'email'])
+        userQuery.select(['id', 'uuid', 'fullName', 'email'])
       })
       .orderBy('created_at', 'desc')
 
@@ -103,9 +104,9 @@ export default class PropertyQuestionsController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const questionId = Number(params.id)
+    ensureUuid(params.id, 'UUID de question invalide')
     const question = await PropertyQuestion.query()
-      .where('id', questionId)
+      .where('uuid', params.id)
       .preload('property')
       .first()
 
@@ -139,8 +140,8 @@ export default class PropertyQuestionsController {
       `Le bailleur a répondu à votre question sur "${question.property.name}"`,
       'property_question_answer',
       {
-        propertyId: question.propertyId,
-        questionId: question.id,
+        propertyId: question.property.uuid,
+        questionId: question.uuid,
       }
     )
 

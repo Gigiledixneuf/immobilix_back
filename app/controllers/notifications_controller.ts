@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import Notification from '#models/notification'
+import { ensureUuid } from '#utils/uuid'
 
 export default class NotificationsController {
   /**
@@ -28,7 +29,8 @@ export default class NotificationsController {
    */
   async markAsRead({ params, auth, response }: HttpContext) {
     const user = auth.user!
-    const notification = await Notification.find(params.id)
+    ensureUuid(params.id, 'UUID de notification invalide')
+    const notification = await Notification.findBy('uuid', params.id)
 
     if (!notification) {
       return response.notFound({ message: 'Notification introuvable' })
@@ -70,7 +72,8 @@ export default class NotificationsController {
    */
   async destroy({ params, auth, response }: HttpContext) {
     const user = auth.user!
-    const notification = await Notification.find(params.id)
+    ensureUuid(params.id, 'UUID de notification invalide')
+    const notification = await Notification.findBy('uuid', params.id)
 
     if (!notification) {
       return response.notFound({ message: 'Notification introuvable' })

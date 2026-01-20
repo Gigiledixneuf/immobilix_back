@@ -27,7 +27,7 @@ export default class ReliabilityScoreService {
    * @param userId ID de l'utilisateur
    * @param points Nombre de points à ajouter (positif ou négatif)
    */
-  async updateScore(userId: string, points: number): Promise<void> {
+  async updateScore(userId: number, points: number): Promise<void> {
     try {
       const user = await User.find(userId)
       if (!user) {
@@ -51,35 +51,35 @@ export default class ReliabilityScoreService {
   /**
    * Ajoute des points pour une visite complétée
    */
-  async addVisitCompletedScore(userId: string): Promise<void> {
+  async addVisitCompletedScore(userId: number): Promise<void> {
     await this.updateScore(userId, ReliabilityScoreService.SCORES.VISIT_COMPLETED)
   }
 
   /**
    * Retire des points pour un no-show
    */
-  async addNoShowScore(userId: string): Promise<void> {
+  async addNoShowScore(userId: number): Promise<void> {
     await this.updateScore(userId, ReliabilityScoreService.SCORES.NO_SHOW)
   }
 
   /**
    * Retire des points pour une annulation tardive
    */
-  async addLateCancellationScore(userId: string): Promise<void> {
+  async addLateCancellationScore(userId: number): Promise<void> {
     await this.updateScore(userId, ReliabilityScoreService.SCORES.LATE_CANCELLATION)
   }
 
   /**
    * Ajoute des points pour une pré-confirmation
    */
-  async addPreConfirmedScore(userId: string): Promise<void> {
+  async addPreConfirmedScore(userId: number): Promise<void> {
     await this.updateScore(userId, ReliabilityScoreService.SCORES.PRE_CONFIRMED)
   }
 
   /**
    * Récupère le score de fiabilité d'un utilisateur
    */
-  async getScore(userId: string): Promise<number> {
+  async getScore(userId: number): Promise<number> {
     const user = await User.find(userId)
     if (!user) {
       throw new Error(`User ${userId} not found`)

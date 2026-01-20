@@ -44,7 +44,7 @@ export default class VisitFlowService {
    */
   async confirmVisit(
     visitRequestId: number,
-    userId: string,
+    userId: number,
     confirmedBy: 'landlord' | 'tenant',
     notes?: string
   ): Promise<VisitRequest> {
@@ -130,7 +130,7 @@ export default class VisitFlowService {
         'Visite complétée',
         'La visite a été confirmée par les deux parties.',
         'visit_completed',
-        { visitRequestId: visitRequest.id, propertyId: visitRequest.propertyId }
+        { visitRequestId: visitRequest.uuid, propertyId: visitRequest.property?.uuid ?? null }
       )
 
       await this.notifier.notifyUser(
@@ -138,7 +138,7 @@ export default class VisitFlowService {
         'Visite complétée',
         'La visite a été confirmée par les deux parties.',
         'visit_completed',
-        { visitRequestId: visitRequest.id, propertyId: visitRequest.propertyId }
+        { visitRequestId: visitRequest.uuid, propertyId: visitRequest.property?.uuid ?? null }
       )
 
       logger.info(`Visit ${visitRequestId} marked as completed by both parties`)
@@ -152,7 +152,7 @@ export default class VisitFlowService {
           ? 'Le bailleur a confirmé que la visite a eu lieu. Merci de confirmer également.'
           : 'Le locataire a confirmé que la visite a eu lieu. Merci de confirmer également.',
         'visit_confirmation',
-        { visitRequestId: visitRequest.id, propertyId: visitRequest.propertyId }
+        { visitRequestId: visitRequest.uuid, propertyId: visitRequest.property?.uuid ?? null }
       )
     }
 
@@ -171,7 +171,7 @@ export default class VisitFlowService {
    * @param visitRequestId ID de la demande de visite
    * @param userId ID du locataire
    */
-  async preConfirmVisit(visitRequestId: number, userId: string): Promise<VisitRequest> {
+  async preConfirmVisit(visitRequestId: number, userId: number): Promise<VisitRequest> {
     const visitRequest = await VisitRequest.query()
       .where('id', visitRequestId)
       .preload('property')
@@ -210,7 +210,7 @@ export default class VisitFlowService {
       'Pré-confirmation de visite',
       'Le locataire a confirmé sa présence pour la visite.',
       'visit_pre_confirmed',
-      { visitRequestId: visitRequest.id, propertyId: visitRequest.propertyId }
+      { visitRequestId: visitRequest.uuid, propertyId: visitRequest.property?.uuid ?? null }
     )
 
     logger.info(`Visit ${visitRequestId} pre-confirmed by tenant ${userId}`)
@@ -262,7 +262,7 @@ export default class VisitFlowService {
       'Visite non effectuée (no-show)',
       `Le locataire n'a pas confirmé la visite. La demande a été marquée comme no-show.`,
       'visit_no_show',
-      { visitRequestId: visitRequest.id, propertyId: visitRequest.propertyId }
+      { visitRequestId: visitRequest.uuid, propertyId: visitRequest.property?.uuid ?? null }
     )
 
     logger.info(`Visit ${visitRequestId} marked as no-show`)
@@ -323,7 +323,7 @@ export default class VisitFlowService {
       'Visite annulée automatiquement',
       'La visite a été annulée automatiquement car le locataire n\'a pas confirmé sa présence.',
       'visit_auto_cancelled',
-      { visitRequestId: visitRequest.id, propertyId: visitRequest.propertyId }
+      { visitRequestId: visitRequest.uuid, propertyId: visitRequest.property?.uuid ?? null }
     )
 
     // Notification au locataire
@@ -332,7 +332,7 @@ export default class VisitFlowService {
       'Visite annulée automatiquement',
       'Votre visite a été annulée automatiquement car vous n\'avez pas confirmé votre présence à temps.',
       'visit_auto_cancelled',
-      { visitRequestId: visitRequest.id, propertyId: visitRequest.propertyId }
+      { visitRequestId: visitRequest.uuid, propertyId: visitRequest.property?.uuid ?? null }
     )
 
     logger.info(`Visit ${visitRequestId} auto-cancelled (no pre-confirmation)`)
@@ -353,7 +353,7 @@ export default class VisitFlowService {
    */
   async createApplicationFromVisit(
     visitRequestId: number,
-    landlordId: string,
+    landlordId: number,
     message?: string
   ): Promise<Application> {
     const visitRequest = await VisitRequest.query()
@@ -406,7 +406,7 @@ export default class VisitFlowService {
       'Nouvelle candidature',
       `Le bailleur a créé une candidature suite à votre visite du ${visitRequest.scheduledAt?.toLocaleString({ locale: 'fr' })}`,
       'application',
-      { applicationId: application.id, propertyId: visitRequest.propertyId }
+      { applicationId: application.uuid, propertyId: visitRequest.property?.uuid ?? null }
     )
 
     logger.info(`Application ${application.id} created from visit ${visitRequestId}`)

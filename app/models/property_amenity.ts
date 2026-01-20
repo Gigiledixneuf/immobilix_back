@@ -1,13 +1,24 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import Property from '#models/property'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import { randomUUID } from 'node:crypto'
 
 export default class PropertyAmenity extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(amenity: PropertyAmenity) {
+    if (!amenity.uuid) {
+      amenity.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
 
-  @column()
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ serializeAs: null })
   declare property_id: number
 
   @column()
