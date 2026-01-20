@@ -1,24 +1,19 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import Review from '#models/review'
-import Property from '#models/property'
-import User from '#models/user'
-import Role from '#models/role'
-import { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
+import VisitRequest, { VisitRequestStatus } from '#models/visit_request'
 
 export default class ReviewSeeder extends BaseSeeder {
   public async run() {
     console.log('🌱 Seeding reviews...')
 
-    const properties = await Property.query()
-    const tenants = await User.query().whereHas(
-      'roles',
-      (roleQuery: ModelQueryBuilderContract<typeof Role>) => {
-        roleQuery.where('name', 'locataire')
-      }
-    )
+    const visits = await VisitRequest.query()
+      .where('status', VisitRequestStatus.COMPLETED)
+      .where('completed_by_landlord', true)
+      .where('completed_by_tenant', true)
+      .preload('property')
 
-    if (properties.length === 0 || tenants.length === 0) {
-      console.warn('⚠️ Not enough properties or tenants. Run previous seeders first.')
+    if (visits.length === 0) {
+      console.warn('⚠️ No completed visits found. Run visit flow seeders first.')
       return
     }
 
@@ -34,31 +29,47 @@ export default class ReviewSeeder extends BaseSeeder {
     ]
 
     let created = 0
-    const maxReviewsPerProperty = Math.min(3, tenants.length, reviewSamples.length)
 
-    for (const property of properties) {
-      const offset = property.id % tenants.length
+    for (const visit of visits) {
+      const sampleIndex = visit.id % reviewSamples.length
+      const tenantSample = reviewSamples[sampleIndex]
+      const landlordSample = reviewSamples[(sampleIndex + 2) % reviewSamples.length]
 
-      for (let i = 0; i < maxReviewsPerProperty; i++) {
-        const tenant = tenants[(offset + i) % tenants.length]
-        const sample = reviewSamples[(property.id + i) % reviewSamples.length]
+      // Tenant review about property
+      const tenantExisting = await Review.query()
+        .where('visit_request_id', visit.id)
+        .where('user_id', visit.tenantId)
+        .first()
 
-        const existing = await Review.query()
-          .where('property_id', property.id)
-          .where('user_id', tenant.id)
-          .first()
-
-        if (existing) {
-          continue
-        }
-
+      if (!tenantExisting) {
         await Review.create({
-          propertyId: property.id,
-          userId: tenant.id,
-          rating: sample.rating,
-          comment: sample.comment,
+          visitRequestId: visit.id,
+          propertyId: visit.propertyId,
+          userId: visit.tenantId,
+          rating: tenantSample.rating,
+          comment: tenantSample.comment,
+          reviewType: 'property',
         })
+        created++
+      }
 
+      // Landlord review about tenant
+      const landlordId = visit.property.user_id
+      const landlordExisting = await Review.query()
+        .where('visit_request_id', visit.id)
+        .where('user_id', landlordId)
+        .first()
+
+      if (!landlordExisting) {
+        await Review.create({
+          visitRequestId: visit.id,
+          propertyId: visit.propertyId,
+          userId: landlordId,
+          reviewedUserId: visit.tenantId,
+          rating: landlordSample.rating,
+          comment: landlordSample.comment,
+          reviewType: 'tenant',
+        })
         created++
       }
     }

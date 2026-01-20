@@ -31,6 +31,20 @@ const SearchesController = () => import('#controllers/searches_controller')
 const MessagesController = () => import('#controllers/messages_controller')
 const FcmTokensController = () => import('#controllers/fcm_tokens_controller')
 const GeocodingController = () => import('#controllers/geocoding_controller')
+const ReviewsController = () => import('#controllers/reviews_controller')
+
+const UUID_ROUTE_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+router.where('id', UUID_ROUTE_PATTERN)
+router.where('propertyId', UUID_ROUTE_PATTERN)
+router.where('tenantId', UUID_ROUTE_PATTERN)
+router.where('visitRequestId', UUID_ROUTE_PATTERN)
+router.where('conversationId', UUID_ROUTE_PATTERN)
+router.where('messageId', UUID_ROUTE_PATTERN)
+router.where('applicationId', UUID_ROUTE_PATTERN)
+router.where('contractId', UUID_ROUTE_PATTERN)
+router.where('userId', UUID_ROUTE_PATTERN)
 
 router.get('/', async () => {
   return {
@@ -234,6 +248,15 @@ router
     router.post('/fcm-tokens', [FcmTokensController, 'store'])
     router.get('/fcm-tokens', [FcmTokensController, 'index'])
     router.delete('/fcm-tokens/:token', [FcmTokensController, 'destroy'])
+    // Routes pour les avis (reviews)
+    router
+      .post('/reviews/property', [ReviewsController, 'storeProperty'])
+      .use(middleware.roleGuard({ requiredRole: 'tenant' }))
+    router
+      .post('/reviews/tenant', [ReviewsController, 'storeTenant'])
+      .use(middleware.roleGuard({ requiredRole: 'landlord' }))
+    router.get('/reviews/property/:propertyId', [ReviewsController, 'propertyReviews'])
+    router.get('/reviews/tenant/:tenantId', [ReviewsController, 'tenantReviews'])
   })
   .prefix('/api')
   .middleware([middleware.auth(), middleware.roleGuard()])
