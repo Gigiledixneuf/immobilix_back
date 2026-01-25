@@ -202,7 +202,12 @@ export default class FirebaseService {
     if (!this.initialized) {
       await this.initialize()
       if (!this.initialized) {
-        logger.warn('Firebase not initialized, skipping FCM notification')
+        try {
+          const logger = await import('@adonisjs/core/services/logger')
+          logger.default.warn('Firebase not initialized, skipping FCM notification')
+        } catch {
+          // ignore
+        }
         return { successCount: 0, failureCount: tokens.length }
       }
     }
