@@ -21,6 +21,14 @@ const InvitesController = () => import('#controllers/invites_controller')
 const PublicPropertiesController = () => import('#controllers/Public/properties_controller')
 const ProfilesController = () => import('#controllers/profiles_controller')
 const AdminUsersController = () => import('#controllers/Admin/users_controller')
+const AdminAuthController = () => import('#controllers/Admin/auth_controller')
+const AdminDashboardController = () => import('#controllers/Admin/dashboard_controller')
+const AdminPropertiesController = () => import('#controllers/Admin/properties_controller')
+const AdminVisitsController = () => import('#controllers/Admin/visits_controller')
+const AdminReviewsController = () => import('#controllers/Admin/reviews_controller')
+const AdminReportsController = () => import('#controllers/Admin/reports_controller')
+const AdminConversationsController = () => import('#controllers/Admin/conversations_controller')
+const AdminSettingsController = () => import('#controllers/Admin/settings_controller')
 const LoginController = () => import('#controllers/Auth/login_controller')
 const RegistersController = () => import('#controllers/Auth/registers_controller')
 const LogoutController = () => import('#controllers/Auth/logout_controller')
@@ -207,6 +215,7 @@ router
     router.delete('/visit-requests/:id', [VisitRequestsController, 'destroy'])
     // Routes pour les créneaux horaires disponibles
     router.get('/properties/:id/available-slots', [VisitTimeSlotsController, 'getAvailableSlots'])
+    router.get('/properties/:id/availability', [VisitTimeSlotsController, 'getAvailability'])
     router.post('/properties/:id/block-slot', [VisitTimeSlotsController, 'blockSlot'])
     router.delete('/time-slots/:id/block', [VisitTimeSlotsController, 'unblockSlot'])
     // Routes pour les disponibilités du bailleur
@@ -262,12 +271,57 @@ router
   .middleware([middleware.auth(), middleware.roleGuard()])
 
 // Routes d'administration
+// Routes d'authentification admin (publiques, sans middleware auth)
 router
   .group(() => {
-    router.resource('/users', AdminUsersController).only(['index', 'show', 'update'])
+    router.post('/auth/login', [AdminAuthController, 'login']).as('admin.auth.login').use(middleware.rateLimit())
+    router.post('/auth/refresh', [AdminAuthController, 'refresh']).as('admin.auth.refresh')
   })
   .prefix('/api/admin')
-  .middleware([middleware.auth()])
+
+// Routes protégées admin (nécessitent authentification)
+router
+  .group(() => {
+    // Dashboard
+    router.get('/dashboard', [AdminDashboardController, 'index']).as('admin.dashboard.index')
+    
+    // Users - utiliser des noms explicites pour éviter les conflits
+    router.get('/users', [AdminUsersController, 'index']).as('admin.users.index')
+    router.get('/users/:id', [AdminUsersController, 'show']).as('admin.users.show')
+    router.put('/users/:id', [AdminUsersController, 'update']).as('admin.users.update')
+    
+    // Properties - utiliser des noms explicites pour éviter les conflits
+    router.get('/properties', [AdminPropertiesController, 'index']).as('admin.properties.index')
+    router.get('/properties/:id', [AdminPropertiesController, 'show']).as('admin.properties.show')
+    router.put('/properties/:id', [AdminPropertiesController, 'update']).as('admin.properties.update')
+    router.delete('/properties/:id', [AdminPropertiesController, 'destroy']).as('admin.properties.destroy')
+    
+    // Visits - utiliser des noms explicites pour éviter les conflits
+    router.get('/visits', [AdminVisitsController, 'index']).as('admin.visits.index')
+    router.get('/visits/:id', [AdminVisitsController, 'show']).as('admin.visits.show')
+    router.put('/visits/:id', [AdminVisitsController, 'update']).as('admin.visits.update')
+    
+    // Reviews - utiliser des noms explicites pour éviter les conflits
+    router.get('/reviews', [AdminReviewsController, 'index']).as('admin.reviews.index')
+    router.get('/reviews/:id', [AdminReviewsController, 'show']).as('admin.reviews.show')
+    router.delete('/reviews/:id', [AdminReviewsController, 'destroy']).as('admin.reviews.destroy')
+    
+    // Conversations - utiliser des noms explicites pour éviter les conflits
+    router.get('/conversations', [AdminConversationsController, 'index']).as('admin.conversations.index')
+    router.get('/conversations/:id', [AdminConversationsController, 'show']).as('admin.conversations.show')
+    
+    // Reports
+    router.get('/reports', [AdminReportsController, 'index']).as('admin.reports.index')
+    
+    // Settings
+    router.get('/settings', [AdminSettingsController, 'show']).as('admin.settings.show')
+    router.put('/settings', [AdminSettingsController, 'update']).as('admin.settings.update')
+    
+    // Global Search
+    router.get('/search', [AdminDashboardController, 'globalSearch']).as('admin.globalSearch')
+  })
+  .prefix('/api/admin')
+  .middleware([middleware.auth(), middleware.adminRoleGuard()])
 
 // Routes publiques (guest)
 router
