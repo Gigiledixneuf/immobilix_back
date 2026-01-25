@@ -7,7 +7,7 @@ export default class AdminUsersController {
   /**
    * Liste tous les utilisateurs. Réservé aux administrateurs.
    */
-  async index({ auth, response }: HttpContext) {
+  async index({ auth, request, response }: HttpContext) {
     const user = auth.user
     if (!user) return response.unauthorized()
 
@@ -18,8 +18,34 @@ export default class AdminUsersController {
       return response.forbidden({ message: 'Accès refusé.' })
     }
 
-    const users = await User.query().preload('roles')
-    return response.ok(users)
+    try {
+      const page = request.input('page', 1)
+      const limit = request.input('limit', 20)
+      const search = request.input('search', '')
+
+      let query = User.query().preload('roles')
+
+      // Filtre par recherche (nom, email)
+      if (search) {
+        query = query.where((q) => {
+          q.where('email', 'like', `%${search}%`)
+            .orWhere('first_name', 'like', `%${search}%`)
+            .orWhere('last_name', 'like', `%${search}%`)
+        })
+      }
+
+      // Trier par date de création (plus récents en premier)
+      query = query.orderBy('created_at', 'desc')
+
+      const users = await query.paginate(page, limit)
+      return response.ok(users)
+    } catch (error: any) {
+      return response.internalServerError({
+        status: 'error',
+        message: 'Erreur lors de la récupération des utilisateurs',
+        error: error.message,
+      })
+    }
   }
 
   /**
