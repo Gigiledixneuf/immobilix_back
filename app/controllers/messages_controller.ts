@@ -3,8 +3,7 @@ import logger from '@adonisjs/core/services/logger'
 import Conversation from '#models/conversation'
 import Message from '#models/message'
 import { CreateMessageValidator } from '#validators/message'
-import NotificationsService from '#services/notifications_service'
-import { getWebSocketService } from '#services/websocket_service'
+import { getRealtimeEventBus } from '#services/realtime_event_bus'
 import { ensureUuid } from '#utils/uuid'
 import User from '#models/user'
 import Property from '#models/property'
@@ -330,62 +329,32 @@ export default class MessagesController {
         },
       }
 
-      // Envoyer les notifications de manière asynchrone (ne pas bloquer la réponse)
+      // Publier l'événement temps réel via Redis (fan-out par listener)
       const recipientId = conversation.getOtherUserId(user.id)
-      
-      // WebSocket et FCM en parallèle et asynchrone (fire and forget)
-      setImmediate(async () => {
-        try {
-          // Envoyer WebSocket et FCM en parallèle
-          const [wsResult, fcmResult] = await Promise.allSettled([
-            (async () => {
-              const websocketService = getWebSocketService()
-              await websocketService.sendMessageToUser(recipientId, {
-                type: 'new_message',
-                conversationId: conversation.uuid,
-                message: {
-                  id: message.uuid,
-                  content: message.content,
-                  senderId: message.sender?.uuid ?? user.uuid,
-                  sender: message.sender
-                    ? {
-                        id: message.sender.uuid,
-                        fullName: message.sender.fullName,
-                      }
-                    : {
-                        id: user.uuid,
-                        fullName: user.fullName || 'Utilisateur',
-                      },
-                  createdAt: message.createdAt.toISO(),
-                },
-              })
-            })(),
-            (async () => {
-              const notifier = new NotificationsService()
-              await notifier.sendFcmOnly(
-                recipientId,
-                'Nouveau message',
-                `${user.fullName}: ${payload.content.substring(0, 50)}${payload.content.length > 50 ? '...' : ''}`,
-                {
-                  conversationId: String(conversation.uuid),
-                  messageId: String(message.uuid),
-                  type: 'message',
+      const eventBus = getRealtimeEventBus()
+      await eventBus.publish({
+        type: 'message.created',
+        payload: {
+          recipientId,
+          senderId: user.id,
+          clientId: payload.clientId || null,
+          message: {
+            id: message.uuid,
+            content: message.content,
+            senderId: message.sender?.uuid ?? user.uuid,
+            sender: message.sender
+              ? {
+                  id: message.sender.uuid,
+                  fullName: message.sender.fullName,
                 }
-              )
-            })(),
-          ])
-
-          // Logger les erreurs si nécessaire
-          if (wsResult.status === 'rejected') {
-            logger.error('WebSocket error:', wsResult.reason)
-          }
-          if (fcmResult.status === 'rejected') {
-            logger.error('FCM notification error:', fcmResult.reason)
-          }
-        } catch (error) {
-          // Logger les erreurs mais ne pas bloquer
-          logger.error('Error sending notifications:', error)
-        }
+              : {
+                  id: user.uuid,
+                  fullName: user.fullName || 'Utilisateur',
+                },
+            conversationId: conversation.uuid,
+            createdAt: message.createdAt.toISO(),
+          },
+        },
       })
 
       // Retourner la réponse immédiatement

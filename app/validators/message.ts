@@ -19,5 +19,6 @@ export const CreateMessageValidator = vine.compile(
       .optional(),
     content: vine.string().trim().minLength(1),
     type: vine.string().in(['text', 'image']).optional(),
+    clientId: vine.string().trim().optional(),
   })
 )
