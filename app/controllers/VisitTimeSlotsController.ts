@@ -70,6 +70,64 @@ export default class VisitTimeSlotsController {
   }
 
   /**
+   * GET /api/properties/:id/availability
+   * Retourne les jours disponibles / non disponibles et les créneaux avec statuts.
+   */
+  async getAvailability({ params, request, response }: HttpContext) {
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
+    
+    if (!property) {
+      return response.notFound({ message: 'Logement introuvable' })
+    }
+
+    const startDateStr = request.input('start_date')
+    const endDateStr = request.input('end_date')
+    const timezone = request.input('tz') || 'UTC'
+
+    const startDate = startDateStr
+      ? DateTime.fromISO(startDateStr, { zone: timezone }).startOf('day')
+      : DateTime.now().setZone(timezone).startOf('day')
+
+    const endDate = endDateStr
+      ? DateTime.fromISO(endDateStr, { zone: timezone }).endOf('day')
+      : DateTime.now().setZone(timezone).plus({ days: 14 }).endOf('day')
+
+    if (startDate > endDate) {
+      return response.badRequest({ 
+        message: 'La date de début doit être antérieure ou égale à la date de fin' 
+      })
+    }
+
+    try {
+      const now = DateTime.now().setZone(timezone)
+      const { days } = await this.slotService.getAvailabilitySummary(property.id, startDate, endDate, now)
+
+      const daysAvailable = days.filter((d) => d.status === 'available').map((d) => d.date)
+      const daysUnavailable = days.filter((d) => d.status !== 'available').map((d) => d.date)
+
+      return response.ok({
+        status: 'success',
+        message: 'Disponibilités',
+        data: {
+          timezone,
+          startDate: startDate.toISODate(),
+          endDate: endDate.toISODate(),
+          daysAvailable,
+          daysUnavailable,
+          days,
+        },
+      })
+    } catch (error: any) {
+      return response.internalServerError({
+        status: 'error',
+        message: 'Erreur lors de la récupération des disponibilités',
+        error: error.message,
+      })
+    }
+  }
+
+  /**
    * POST /api/properties/:id/block-slot
    * Bloque un créneau manuellement (bailleur uniquement)
    */

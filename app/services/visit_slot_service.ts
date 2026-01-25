@@ -14,6 +14,23 @@ import logger from '@adonisjs/core/services/logger'
  * - Vérification de disponibilité en temps réel
  */
 export default class VisitSlotService {
+  private normalizeStatus(status: VisitTimeSlotStatus | string): VisitTimeSlotStatus {
+    if (status === VisitTimeSlotStatus.RESERVED) {
+      return VisitTimeSlotStatus.BOOKED
+    }
+    return status as VisitTimeSlotStatus
+  }
+
+  private isExpired(slotDate: DateTime, startTime: string, now: DateTime): boolean {
+    const [hour, minute] = startTime.split(':').map(Number)
+    const slotDateTime = slotDate.set({
+      hour,
+      minute,
+      second: 0,
+      millisecond: 0,
+    })
+    return slotDateTime < now
+  }
   /**
    * Génère les créneaux horaires disponibles pour une propriété sur une période donnée
    * 
@@ -200,6 +217,8 @@ export default class VisitSlotService {
     // S'assurer que les créneaux sont générés pour cette période
     await this.generateTimeSlots(propertyId, startDate, endDate)
 
+    const now = DateTime.now()
+
     // Récupérer les créneaux disponibles
     const slots = await VisitTimeSlot.query()
       .where('property_id', propertyId)
@@ -208,6 +227,112 @@ export default class VisitSlotService {
       .where('status', VisitTimeSlotStatus.AVAILABLE)
       .orderBy('slot_date', 'asc')
       .orderBy('start_time', 'asc')
+
+    return slots.filter((slot) => !this.isExpired(slot.slotDate, slot.startTime, now))
+  }
+
+  /**
+   * Retourne un résumé par jour (jours dispo / non dispo)
+   */
+  async getAvailabilitySummary(
+    propertyId: number,
+    startDate: DateTime,
+    endDate: DateTime,
+    now: DateTime
+  ) {
+    const slots = await this.getSlotsWithStatus(propertyId, startDate, endDate, now)
+
+    const byDate = new Map<string, VisitTimeSlot[]>()
+    slots.forEach((slot) => {
+      const key = slot.slotDate.toSQLDate()!
+      if (!byDate.has(key)) {
+        byDate.set(key, [])
+      }
+      byDate.get(key)!.push(slot)
+    })
+
+    const days = []
+    let cursor = startDate.startOf('day')
+    const end = endDate.startOf('day')
+
+    while (cursor <= end) {
+      const key = cursor.toSQLDate()!
+      const daySlots = byDate.get(key) ?? []
+      const hasAvailable = daySlots.some((s) => s.status === VisitTimeSlotStatus.AVAILABLE)
+      const hasSlots = daySlots.length > 0
+      const status = hasAvailable ? 'available' : hasSlots ? 'fully_booked' : 'unavailable'
+      days.push({
+        date: key,
+        status,
+        slots: daySlots,
+      })
+      cursor = cursor.plus({ days: 1 })
+    }
+
+    return {
+      slots,
+      days,
+    }
+  }
+
+  private async emitSlotUpdate(propertyId: number, slot: VisitTimeSlot) {
+    try {
+      const property = await Property.find(propertyId)
+      if (!property) {
+        return
+      }
+      const { getRealtimeEventBus } = await import('#services/realtime_event_bus')
+      const eventBus = getRealtimeEventBus()
+      await eventBus.publish({
+        type: 'slot.updated',
+        payload: {
+          propertyId: property.uuid,
+          slot: {
+            id: slot.uuid,
+            date: slot.slotDate.toSQLDate(),
+            startTime: slot.startTime,
+            endTime: slot.endTime,
+            status: slot.status,
+            visitRequestId: slot.visitRequestId,
+          },
+        },
+      })
+    } catch (error) {
+      logger.warn('Failed to emit slot update', error)
+    }
+  }
+
+  /**
+   * Retourne tous les créneaux (tous statuts) pour une période
+   * et calcule le statut "expired" côté API si nécessaire.
+   */
+  async getSlotsWithStatus(
+    propertyId: number,
+    startDate: DateTime,
+    endDate: DateTime,
+    now: DateTime
+  ): Promise<VisitTimeSlot[]> {
+    await this.generateTimeSlots(propertyId, startDate, endDate)
+
+    const slots = await VisitTimeSlot.query()
+      .where('property_id', propertyId)
+      .where('slot_date', '>=', startDate.toSQLDate()!)
+      .where('slot_date', '<=', endDate.toSQLDate()!)
+      .orderBy('slot_date', 'asc')
+      .orderBy('start_time', 'asc')
+
+    slots.forEach((slot) => {
+      const normalizedStatus = this.normalizeStatus(slot.status)
+      if (
+        this.isExpired(slot.slotDate, slot.startTime, now) &&
+        (normalizedStatus === VisitTimeSlotStatus.AVAILABLE ||
+          normalizedStatus === VisitTimeSlotStatus.PENDING)
+      ) {
+        slot.status = VisitTimeSlotStatus.EXPIRED
+      } else {
+        slot.status = normalizedStatus
+      }
+    })
 
     return slots
   }
@@ -238,7 +363,8 @@ export default class VisitSlotService {
     propertyId: number,
     slotDate: DateTime,
     startTime: string,
-    visitRequestId: number
+    visitRequestId: number,
+    status: VisitTimeSlotStatus = VisitTimeSlotStatus.PENDING
   ): Promise<VisitTimeSlot> {
     // Utiliser une transaction pour éviter les conditions de course
     const db = await import('@adonisjs/lucid/services/db')
@@ -249,6 +375,7 @@ export default class VisitSlotService {
         .where('property_id', propertyId)
         .where('slot_date', slotDate.toSQLDate()!)
         .where('start_time', startTime)
+        .forUpdate()
         .first()
 
       if (!slot) {
@@ -257,18 +384,82 @@ export default class VisitSlotService {
 
       // Vérifier que le créneau est disponible
       if (!slot.isAvailable()) {
-        throw new Error(`Time slot is not available (status: ${slot.status})`)
+        const error: any = new Error('SLOT_NOT_AVAILABLE')
+        error.code = 'SLOT_NOT_AVAILABLE'
+        error.status = slot.status
+        throw error
       }
 
       // Réserver le créneau
-      slot.status = VisitTimeSlotStatus.RESERVED
+      slot.status = status
       slot.visitRequestId = visitRequestId
       await slot.useTransaction(trx).save()
 
-      logger.info(`Time slot ${slot.id} reserved for visit request ${visitRequestId}`)
+      logger.info(`Time slot ${slot.id} reserved (${status}) for visit request ${visitRequestId}`)
 
+      await this.emitSlotUpdate(propertyId, slot)
       return slot
     })
+  }
+
+  /**
+   * Verrouille et retourne un créneau disponible (transaction externe)
+   */
+  async lockAvailableSlot(
+    propertyId: number,
+    slotDate: DateTime,
+    startTime: string,
+    trx: any
+  ): Promise<VisitTimeSlot> {
+    const slot = await VisitTimeSlot.query({ client: trx })
+      .where('property_id', propertyId)
+      .where('slot_date', slotDate.toSQLDate()!)
+      .where('start_time', startTime)
+      .forUpdate()
+      .first()
+
+    if (!slot) {
+      const error: any = new Error('SLOT_NOT_FOUND')
+      error.code = 'SLOT_NOT_FOUND'
+      throw error
+    }
+
+    if (!slot.isAvailable()) {
+      const error: any = new Error('SLOT_NOT_AVAILABLE')
+      error.code = 'SLOT_NOT_AVAILABLE'
+      error.status = slot.status
+      throw error
+    }
+
+    return slot
+  }
+
+  /**
+   * Passe un créneau en pending (transaction externe)
+   */
+  async markSlotPending(slot: VisitTimeSlot, visitRequestId: number, trx: any) {
+    slot.status = VisitTimeSlotStatus.PENDING
+    slot.visitRequestId = visitRequestId
+    await slot.useTransaction(trx).save()
+    await this.emitSlotUpdate(slot.propertyId, slot)
+  }
+
+  /**
+   * Confirme un créneau (passe en booked)
+   */
+  async confirmSlot(visitRequestId: number): Promise<VisitTimeSlot | null> {
+    const slot = await VisitTimeSlot.query()
+      .where('visit_request_id', visitRequestId)
+      .first()
+
+    if (!slot) {
+      return null
+    }
+
+    slot.status = VisitTimeSlotStatus.BOOKED
+    await slot.save()
+    await this.emitSlotUpdate(slot.propertyId, slot)
+    return slot
   }
 
   /**
@@ -287,6 +478,7 @@ export default class VisitSlotService {
     await slot.save()
 
     logger.info(`Time slot ${slotId} released`)
+    await this.emitSlotUpdate(slot.propertyId, slot)
   }
 
   /**
@@ -310,7 +502,11 @@ export default class VisitSlotService {
       throw new Error(`Time slot not found`)
     }
 
-    if (slot.status === VisitTimeSlotStatus.RESERVED) {
+    if (
+      slot.status === VisitTimeSlotStatus.RESERVED ||
+      slot.status === VisitTimeSlotStatus.BOOKED ||
+      slot.status === VisitTimeSlotStatus.PENDING
+    ) {
       throw new Error('Cannot block a reserved slot')
     }
 
@@ -318,6 +514,7 @@ export default class VisitSlotService {
     await slot.save()
 
     logger.info(`Time slot ${slot.id} blocked by landlord`)
+    await this.emitSlotUpdate(propertyId, slot)
     return slot
   }
 
@@ -340,6 +537,7 @@ export default class VisitSlotService {
     await slot.save()
 
     logger.info(`Time slot ${slotId} unblocked`)
+    await this.emitSlotUpdate(slot.propertyId, slot)
   }
 
   /**

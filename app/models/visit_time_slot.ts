@@ -10,8 +10,11 @@ import { randomUUID } from 'node:crypto'
  */
 export enum VisitTimeSlotStatus {
   AVAILABLE = 'available',
-  RESERVED = 'reserved',
+  PENDING = 'pending',
+  BOOKED = 'booked',
+  RESERVED = 'reserved', // legacy
   BLOCKED = 'blocked',
+  EXPIRED = 'expired',
 }
 
 /**
@@ -61,8 +64,11 @@ export default class VisitTimeSlot extends BaseModel {
   /**
    * Statut du créneau
    * - available: créneau libre, peut être réservé
-   * - reserved: créneau réservé par une demande acceptée
+   * - pending: créneau en attente (demande créée)
+   * - booked: créneau confirmé
+   * - reserved: legacy (alias de booked)
    * - blocked: créneau bloqué manuellement par le bailleur
+   * - expired: créneau passé (calculé côté API)
    */
   @column()
   declare status: VisitTimeSlotStatus

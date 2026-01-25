@@ -54,19 +54,6 @@ export default class VisitRequestsController {
       return response.badRequest({ message: 'La date demandée ne peut pas être dans le passé' })
     }
 
-    // Vérifier qu'il n'y a pas déjà une demande en attente pour cette propriété et cette date/heure
-    const existing = await VisitRequest.query()
-      .where('property_id', property.id)
-      .where('tenant_id', user.id)
-      .where('requested_date', requestedDate.toSQLDate()!)
-      .where('requested_time', payload.requested_time)
-      .where('status', VisitRequestStatus.PENDING)
-      .first()
-
-    if (existing) {
-      return response.badRequest({ message: 'Une demande de visite est déjà en attente pour cette date et heure' })
-    }
-
     // Extraire l'heure au format HH:mm (sans les secondes)
     const startTime = payload.requested_time.includes(':') && payload.requested_time.split(':').length === 2
       ? payload.requested_time
@@ -75,35 +62,54 @@ export default class VisitRequestsController {
     // Convertir l'heure HH:mm en HH:mm:ss pour la base de données
     const timeWithSeconds = `${startTime}:00`
 
-    // Trouver ou créer le créneau correspondant
-    let timeSlotId: number | null = null
+    // S'assurer que les créneaux existent pour ce jour
+    await this.slotService.generateTimeSlots(property.id, requestedDate.startOf('day'), requestedDate.endOf('day'))
+
+    // Créer la demande + réserver le créneau en transaction pour éviter les doubles réservations
+    const db = await import('@adonisjs/lucid/services/db')
+    let visitRequest: VisitRequest
     try {
-      const slot = await this.slotService.findOrCreateSlot(property.id, requestedDate, startTime)
-      
-      // Vérifier que le créneau est disponible
-      if (slot.status !== 'available') {
-        return response.badRequest({ 
-          message: 'Ce créneau n\'est plus disponible. Veuillez choisir un autre horaire.' 
+      visitRequest = await db.default.transaction(async (trx) => {
+        const slot = await this.slotService.lockAvailableSlot(
+          property.id,
+          requestedDate,
+          startTime,
+          trx
+        )
+
+        const newVisitRequest = await VisitRequest.create(
+          {
+            propertyId: property.id,
+            tenantId: user.id,
+            requestedDate: requestedDate,
+            requestedTime: timeWithSeconds,
+            message: payload.message ?? null,
+            status: VisitRequestStatus.PENDING,
+            timeSlotId: slot.id,
+          },
+          { client: trx }
+        )
+
+        await this.slotService.markSlotPending(slot, newVisitRequest.id, trx)
+
+        return newVisitRequest
+      })
+    } catch (error: any) {
+      if (error.code === 'SLOT_NOT_AVAILABLE') {
+        return response.badRequest({
+          message: 'Ce créneau n’est plus disponible. Veuillez en choisir un autre.',
         })
       }
-
-      timeSlotId = slot.id
-    } catch (error: any) {
-      // Si le créneau n'existe pas ou n'est pas dans les disponibilités, on continue sans créneau
-      // (compatibilité avec l'ancien système)
-      logger.warn(`Could not find/create slot: ${error.message}`)
+      if (error.code === 'SLOT_NOT_FOUND') {
+        return response.badRequest({
+          message: 'Le bailleur n’est pas disponible ce jour-là.',
+        })
+      }
+      logger.error('Error creating visit request:', error)
+      return response.internalServerError({
+        message: 'Erreur lors de la création de la demande de visite',
+      })
     }
-
-    // Créer la demande de visite
-    const visitRequest = await VisitRequest.create({
-      propertyId: property.id,
-      tenantId: user.id,
-      requestedDate: requestedDate,
-      requestedTime: timeWithSeconds,
-      message: payload.message ?? null,
-      status: VisitRequestStatus.PENDING,
-      timeSlotId: timeSlotId,
-    })
 
     // Charger les relations pour la réponse et la notification
     await visitRequest.load('property')
@@ -339,17 +345,12 @@ export default class VisitRequestsController {
       // Si un créneau est associé, le réserver
       if (visitRequest.timeSlotId) {
         try {
-          await this.slotService.reserveSlot(
-            visitRequest.propertyId,
-            visitRequest.requestedDate,
-            visitRequest.requestedTime.split(':').slice(0, 2).join(':'),
-            visitRequest.id
-          )
+          await this.slotService.confirmSlot(visitRequest.id)
         } catch (error: any) {
           // Si le créneau est déjà réservé, retourner une erreur
           return response.badRequest({
             status: 'error',
-            message: 'Ce créneau a déjà été réservé par une autre demande',
+            message: 'Ce créneau n’est plus disponible. Veuillez proposer un autre horaire.',
           })
         }
       }
