@@ -80,6 +80,7 @@ export default class ReviewService {
       visitRequestId: visitRequest.id,
       propertyId: visitRequest.propertyId,
       userId: payload.userId,
+      reviewedUserId: null,
       rating: payload.rating,
       comment: payload.comment ?? null,
       reviewType: 'property',
@@ -139,7 +140,7 @@ export default class ReviewService {
         )
         .preload('property', (propertyQuery) => propertyQuery.select(['id', 'uuid']))
         .preload('visitRequest', (visitQuery) => visitQuery.select(['id', 'uuid']))
-        .preload('reviewee', (revieweeQuery) => revieweeQuery.select(['id', 'uuid']))
+      // Pas de preload reviewee : avis propriété uniquement, reviewedUserId toujours null
     )
 
     if (limit) {

@@ -54,7 +54,7 @@ export default class ReviewsController {
       await review.load('user')
       await review.load('property')
       await review.load('visitRequest')
-      await review.load('reviewee')
+      // Pas de reviewee pour un avis sur la propriété
 
       return response.created({
         status: 'success',
