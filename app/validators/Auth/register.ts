@@ -11,8 +11,8 @@ export const RegisterValidator = vine.compile(
   vine.object({
     first_name: vine.string().trim().maxLength(100).minLength(2),
     last_name: vine.string().trim().maxLength(100).minLength(1),
-    gender: vine.enum(['male', 'female']),
-    date_of_birth: vine.date().beforeOrEqual(maxBirthDateFor18),
+    gender: vine.enum(['male', 'female']).optional(),
+    date_of_birth: vine.date().beforeOrEqual(maxBirthDateFor18).optional(),
     full_name: vine.string().trim().maxLength(80).minLength(3).optional(),
     email: vine.string().trim().email().unique({ table: 'users', column: 'email' }),
     portable: vine.string().regex(/^[0-9+]{8,15}$/),

@@ -1,5 +1,8 @@
 import vine from '@vinejs/vine'
+import { DateTime } from 'luxon'
 import { uniqueRule } from '#validators/rules/unique'
+
+const maxBirthDateFor18 = DateTime.utc().minus({ years: 18 }).toISODate()!
 
 export const UpdateProfileValidator = vine.compile(
   vine.object({
@@ -19,5 +22,7 @@ export const UpdateProfileValidator = vine.compile(
       )
       .optional(),
     password: vine.string().minLength(8).confirmed().optional(),
+    gender: vine.enum(['male', 'female']).optional(),
+    dateOfBirth: vine.date().beforeOrEqual(maxBirthDateFor18).optional(),
   })
 )
