@@ -191,6 +191,8 @@ router
     router.post('/geocode/address', [GeocodingController, 'address'])
     router.post('/geocode/coordinates', [GeocodingController, 'coordinates'])
     router.resource('/properties', PropertiesController)
+    router.patch('/properties/:id/publish', [PropertiesController, 'publish'])
+    router.patch('/properties/:id/unpublish', [PropertiesController, 'unpublish'])
     router.get('/tenants', [PropertiesController, 'listTenants'])
     router.get('/properties/:id/applications', [ApplicationsController, 'index'])
     router.get('/applications/me', [ApplicationsController, 'myApplications'])

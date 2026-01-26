@@ -120,6 +120,9 @@ export default class Property extends BaseModel {
   @column()
   declare creation_step: number
 
+  @column({ columnName: 'is_public', serializeAs: 'is_public' })
+  declare isPublic: boolean
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

@@ -1238,6 +1238,78 @@ export default class PropertiesController {
   }
 
   /**
+   * 📢 Publier un logement (le rendre visible publiquement).
+   * Uniquement si toutes les étapes sont complétées (creation_step = 8) et au moins une photo.
+   */
+  async publish({ params, auth, response }: HttpContext) {
+    const user = auth.user
+    if (!user) return response.unauthorized({ message: 'You are not authorized' })
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour publier un logement.',
+      })
+    }
+
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
+    if (!property) return response.notFound({ message: 'Logement introuvable' })
+    if (property.user_id !== user.id) {
+      return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
+    }
+
+    if (property.creation_step !== 8) {
+      return response.badRequest({
+        message:
+          'Complétez toutes les étapes de création (1 à 8) avant de publier votre logement.',
+      })
+    }
+
+    const photoCount = await PropertyPhoto.query().where('property_id', property.id).count('* as total')
+    const total = Number(photoCount[0]?.$extras?.total ?? 0)
+    if (total < 1) {
+      return response.badRequest({
+        message: 'Ajoutez au moins une photo avant de publier votre logement.',
+      })
+    }
+
+    property.isPublic = true
+    await property.save()
+
+    return response.ok({
+      message: 'Logement publié avec succès. Il est maintenant visible publiquement.',
+      data: property,
+    })
+  }
+
+  /**
+   * 📥 Dépublier un logement (le remettre en brouillon).
+   */
+  async unpublish({ params, auth, response }: HttpContext) {
+    const user = auth.user
+    if (!user) return response.unauthorized({ message: 'You are not authorized' })
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour gérer la publication.',
+      })
+    }
+
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
+    if (!property) return response.notFound({ message: 'Logement introuvable' })
+    if (property.user_id !== user.id) {
+      return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
+    }
+
+    property.isPublic = false
+    await property.save()
+
+    return response.ok({
+      message: 'Logement retiré de la publication. Il est maintenant en brouillon.',
+      data: property,
+    })
+  }
+
+  /**
    * 🗑️ Supprimer un logement
    */
   async destroy({ params, auth, response }: HttpContext) {

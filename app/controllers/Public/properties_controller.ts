@@ -49,6 +49,7 @@ export default class PublicPropertiesController {
       const isAuthenticated = await apiAuth.check()
 
       let query = Property.query()
+        .where('is_public', true)
         .preload('user', (userQuery) => {
           userQuery.select(['id', 'uuid', 'fullName', 'email', 'portable'])
         })
@@ -247,6 +248,7 @@ export default class PublicPropertiesController {
       ensureUuid(params.id, 'UUID de propriété invalide')
       let query = Property.query()
         .where('uuid', params.id)
+        .where('is_public', true)
         .preload('user', (userQuery) => {
           userQuery.select(['id', 'uuid', 'fullName', 'email', 'portable'])
         })
@@ -416,7 +418,10 @@ export default class PublicPropertiesController {
   async photos({ params, response }: HttpContext) {
     try {
       ensureUuid(params.id, 'UUID de propriété invalide')
-      const property = await Property.findBy('uuid', params.id)
+      const property = await Property.query()
+        .where('uuid', params.id)
+        .where('is_public', true)
+        .first()
 
       if (!property) {
         return response.notFound({ message: 'Property not found' })
@@ -467,9 +472,9 @@ export default class PublicPropertiesController {
    */
   async priceRange({ response }: HttpContext) {
     try {
-      // Approche directe : récupérer toutes les propriétés avec prix > 0 et calculer min/max
-      // C'est plus fiable que les requêtes SQL brutes qui peuvent varier selon le driver
+      // Approche directe : récupérer les propriétés publiques avec prix > 0 et calculer min/max
       const properties = await Property.query()
+        .where('is_public', true)
         .whereNotNull('price')
         .where('price', '>', 0)
 
