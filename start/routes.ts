@@ -1,4 +1,3 @@
-const WebhooksController = () => import('#controllers/webhooks_controller')
 /*
 |--------------------------------------------------------------------------
 | Routes file
@@ -11,25 +10,49 @@ const WebhooksController = () => import('#controllers/webhooks_controller')
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 const ContractsController = () => import('#controllers/contracts_controller')
-const PaymentsController = () => import('#controllers/payments_controller')
 const PropertiesController = () => import('#controllers/Bailleur/properties_controller')
 const ApplicationsController = () => import('#controllers/applications_controller')
 const VisitRequestsController = () => import('#controllers/VisitRequestsController')
+const VisitTimeSlotsController = () => import('#controllers/VisitTimeSlotsController')
+const LandlordAvailabilitiesController = () => import('#controllers/LandlordAvailabilitiesController')
+const VisitStatisticsController = () => import('#controllers/VisitStatisticsController')
 const PropertyQuestionsController = () => import('#controllers/PropertyQuestionsController')
 const InvitesController = () => import('#controllers/invites_controller')
 const PublicPropertiesController = () => import('#controllers/Public/properties_controller')
 const ProfilesController = () => import('#controllers/profiles_controller')
 const AdminUsersController = () => import('#controllers/Admin/users_controller')
+const AdminAuthController = () => import('#controllers/Admin/auth_controller')
+const AdminDashboardController = () => import('#controllers/Admin/dashboard_controller')
+const AdminPropertiesController = () => import('#controllers/Admin/properties_controller')
+const AdminVisitsController = () => import('#controllers/Admin/visits_controller')
+const AdminReviewsController = () => import('#controllers/Admin/reviews_controller')
+const AdminReportsController = () => import('#controllers/Admin/reports_controller')
+const AdminConversationsController = () => import('#controllers/Admin/conversations_controller')
+const AdminSettingsController = () => import('#controllers/Admin/settings_controller')
 const LoginController = () => import('#controllers/Auth/login_controller')
 const RegistersController = () => import('#controllers/Auth/registers_controller')
 const LogoutController = () => import('#controllers/Auth/logout_controller')
 const ForgotPasswordsController = () => import('#controllers/Auth/forgot_passwords_controller')
 const NotificationsController = () => import('#controllers/notifications_controller')
-const InvoicesController = () => import('#controllers/invoices_controller')
 const DashboardController = () => import('#controllers/Bailleur/dashboard_controller')
 const SearchesController = () => import('#controllers/searches_controller')
 const MessagesController = () => import('#controllers/messages_controller')
 const FcmTokensController = () => import('#controllers/fcm_tokens_controller')
+const GeocodingController = () => import('#controllers/geocoding_controller')
+const ReviewsController = () => import('#controllers/reviews_controller')
+
+const UUID_ROUTE_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+router.where('id', UUID_ROUTE_PATTERN)
+router.where('propertyId', UUID_ROUTE_PATTERN)
+router.where('tenantId', UUID_ROUTE_PATTERN)
+router.where('visitRequestId', UUID_ROUTE_PATTERN)
+router.where('conversationId', UUID_ROUTE_PATTERN)
+router.where('messageId', UUID_ROUTE_PATTERN)
+router.where('applicationId', UUID_ROUTE_PATTERN)
+router.where('contractId', UUID_ROUTE_PATTERN)
+router.where('userId', UUID_ROUTE_PATTERN)
 
 router.get('/', async () => {
   return {
@@ -73,8 +96,6 @@ router.get('/uploads/*', async ({ request, response }) => {
       })
     }
     
-    // Logger pour debug
-    console.log(`📁 Serving file: ${extractedPath}`)
     logger.info(`Serving static file: ${extractedPath}`)
     
     // Construire le chemin complet vers le fichier
@@ -97,14 +118,12 @@ router.get('/uploads/*', async ({ request, response }) => {
       })
     }
     
-    console.log(`🔍 Looking for file at: ${normalizedPath}`)
     logger.debug(`Looking for file at: ${normalizedPath}`)
     
     // Vérifier que le fichier existe
     try {
       await fs.access(normalizedPath)
     } catch (accessError: any) {
-      console.error(`❌ File not found: ${normalizedPath}`)
       logger.warn(`File not found: ${normalizedPath}`, { error: accessError?.message })
       return response.status(404).json({
         status: 'error',
@@ -131,7 +150,6 @@ router.get('/uploads/*', async ({ request, response }) => {
     
     const contentType = mimeTypes[ext] || 'application/octet-stream'
     
-    console.log(`✅ Serving file with Content-Type: ${contentType} (${fileContent.length} bytes)`)
     logger.info(`File served successfully: ${extractedPath} (${contentType})`)
     
     return response
@@ -140,7 +158,6 @@ router.get('/uploads/*', async ({ request, response }) => {
       .header('Access-Control-Allow-Origin', '*') // Permettre CORS pour les images
       .send(fileContent)
   } catch (error: any) {
-    console.error(`❌ Error serving static file:`, error)
     logger.error('Error serving static file:', {
       error: error?.message || String(error),
       stack: error?.stack,
@@ -171,9 +188,16 @@ router.get('/notifications', async ({ request, response }) => {
 router
   .group(() => {
     router.post('logout', [LogoutController, 'logout'])
+    router.post('/geocode/address', [GeocodingController, 'address'])
+    router.post('/geocode/coordinates', [GeocodingController, 'coordinates'])
     router.resource('/properties', PropertiesController)
+    router.patch('/properties/:id/publish', [PropertiesController, 'publish'])
+    router.patch('/properties/:id/unpublish', [PropertiesController, 'unpublish'])
     router.get('/tenants', [PropertiesController, 'listTenants'])
     router.get('/properties/:id/applications', [ApplicationsController, 'index'])
+    router.get('/applications/me', [ApplicationsController, 'myApplications'])
+    router.get('/applications/landlord', [ApplicationsController, 'landlordApplications'])
+    router.get('/applications/visit-request/:visitRequestId', [ApplicationsController, 'getByVisitRequest'])
     router.patch('/applications/:id/accept', [ApplicationsController, 'accept'])
     router.patch('/applications/:id/reject', [ApplicationsController, 'reject'])
     router.post('/applications/:id/create-contract', [ApplicationsController, 'createContract'])
@@ -181,36 +205,42 @@ router
     router.post('/applications/:id/accept', [ApplicationsController, 'accept'])
     router.post('/applications/:id/reject', [ApplicationsController, 'reject'])
     router.resource('/contracts', ContractsController)
-    router.post('/contracts/:id/pay-deposit', [ContractsController, 'payDeposit'])
     router.post('/properties/:id/apply', [ApplicationsController, 'apply'])
     // Routes pour les demandes de visite
     router.post('/properties/:id/visit-requests', [VisitRequestsController, 'store'])
     router.get('/properties/:id/visit-requests', [VisitRequestsController, 'index'])
     router.get('/visit-requests/me', [VisitRequestsController, 'myRequests'])
     router.patch('/visit-requests/:id/status', [VisitRequestsController, 'updateStatus'])
+    router.patch('/visit-requests/:id/complete', [VisitRequestsController, 'complete'])
+    router.post('/visit-requests/:id/pre-confirm', [VisitRequestsController, 'preConfirm'])
+    router.post('/visit-requests/:id/create-application', [VisitRequestsController, 'createApplicationFromVisit'])
     router.delete('/visit-requests/:id', [VisitRequestsController, 'destroy'])
+    // Routes pour les créneaux horaires disponibles
+    router.get('/properties/:id/available-slots', [VisitTimeSlotsController, 'getAvailableSlots'])
+    router.get('/properties/:id/availability', [VisitTimeSlotsController, 'getAvailability'])
+    router.post('/properties/:id/block-slot', [VisitTimeSlotsController, 'blockSlot'])
+    router.delete('/time-slots/:id/block', [VisitTimeSlotsController, 'unblockSlot'])
+    // Routes pour les disponibilités du bailleur
+    router.get('/landlord/availabilities', [LandlordAvailabilitiesController, 'index'])
+    router.post('/landlord/availabilities', [LandlordAvailabilitiesController, 'store'])
+    // Routes pour les statistiques de visites
+    router.get('/landlord/visit-statistics', [VisitStatisticsController, 'getLandlordStatistics'])
+    router.get('/properties/:id/visit-statistics', [VisitStatisticsController, 'getPropertyStatistics'])
     // Routes pour les questions sur les propriétés
     router.post('/properties/:id/questions', [PropertyQuestionsController, 'store'])
     router.get('/properties/:id/questions', [PropertyQuestionsController, 'index'])
     router.patch('/properties/questions/:id/answer', [PropertyQuestionsController, 'answer'])
     router.get('/profile', [ProfilesController, 'show'])
     router.put('/profile', [ProfilesController, 'update'])
+    router.post('/profile/photo', [ProfilesController, 'updatePhoto'])
     router.post('/profile/add-role', [ProfilesController, 'addRole'])
-    router.post('/payments', [PaymentsController, 'store'])
-    router.get('/contracts/:id/payments', [PaymentsController, 'history'])
+    router.post('/profile/change-active-role', [ProfilesController, 'changeActiveRole'])
     router.post('/invites', [InvitesController, 'store'])
     // Routes pour les notifications
     router.get('/notifications', [NotificationsController, 'index'])
     router.put('/notifications/:id/read', [NotificationsController, 'markAsRead'])
     router.put('/notifications/read-all', [NotificationsController, 'markAllAsRead'])
     router.delete('/notifications/:id', [NotificationsController, 'destroy'])
-    // Routes pour les factures
-    router.get('/invoices', [InvoicesController, 'index'])
-    router.get('/invoices/pending', [InvoicesController, 'pending'])
-    router.get('/invoices/:id', [InvoicesController, 'show'])
-    router.post('/invoices', [InvoicesController, 'store'])
-    router.post('/invoices/:id/pay', [InvoicesController, 'pay'])
-    router.put('/invoices/:id/cancel', [InvoicesController, 'cancel'])
     // Route pour le dashboard du bailleur
     router.get('/dashboard', [DashboardController, 'index'])
     // Routes pour les recherches (vues récentes et favoris)
@@ -229,17 +259,71 @@ router
     router.post('/fcm-tokens', [FcmTokensController, 'store'])
     router.get('/fcm-tokens', [FcmTokensController, 'index'])
     router.delete('/fcm-tokens/:token', [FcmTokensController, 'destroy'])
+    // Routes pour les avis (reviews)
+    router
+      .post('/reviews/property', [ReviewsController, 'storeProperty'])
+      .use(middleware.roleGuard({ requiredRole: 'tenant' }))
+    router
+      .post('/reviews/tenant', [ReviewsController, 'storeTenant'])
+      .use(middleware.roleGuard({ requiredRole: 'landlord' }))
+    router.get('/reviews/property/:propertyId', [ReviewsController, 'propertyReviews'])
+    router.get('/reviews/tenant/:tenantId', [ReviewsController, 'tenantReviews'])
   })
   .prefix('/api')
-  .middleware([middleware.auth()])
+  .middleware([middleware.auth(), middleware.roleGuard()])
 
 // Routes d'administration
+// Routes d'authentification admin (publiques, sans middleware auth)
 router
   .group(() => {
-    router.resource('/users', AdminUsersController).only(['index', 'show', 'update'])
+    router.post('/auth/login', [AdminAuthController, 'login']).as('admin.auth.login').use(middleware.rateLimit())
+    router.post('/auth/refresh', [AdminAuthController, 'refresh']).as('admin.auth.refresh')
   })
   .prefix('/api/admin')
-  .middleware([middleware.auth()])
+
+// Routes protégées admin (nécessitent authentification)
+router
+  .group(() => {
+    // Dashboard
+    router.get('/dashboard', [AdminDashboardController, 'index']).as('admin.dashboard.index')
+    
+    // Users - utiliser des noms explicites pour éviter les conflits
+    router.get('/users', [AdminUsersController, 'index']).as('admin.users.index')
+    router.get('/users/:id', [AdminUsersController, 'show']).as('admin.users.show')
+    router.put('/users/:id', [AdminUsersController, 'update']).as('admin.users.update')
+    
+    // Properties - utiliser des noms explicites pour éviter les conflits
+    router.get('/properties', [AdminPropertiesController, 'index']).as('admin.properties.index')
+    router.get('/properties/:id', [AdminPropertiesController, 'show']).as('admin.properties.show')
+    router.put('/properties/:id', [AdminPropertiesController, 'update']).as('admin.properties.update')
+    router.delete('/properties/:id', [AdminPropertiesController, 'destroy']).as('admin.properties.destroy')
+    
+    // Visits - utiliser des noms explicites pour éviter les conflits
+    router.get('/visits', [AdminVisitsController, 'index']).as('admin.visits.index')
+    router.get('/visits/:id', [AdminVisitsController, 'show']).as('admin.visits.show')
+    router.put('/visits/:id', [AdminVisitsController, 'update']).as('admin.visits.update')
+    
+    // Reviews - utiliser des noms explicites pour éviter les conflits
+    router.get('/reviews', [AdminReviewsController, 'index']).as('admin.reviews.index')
+    router.get('/reviews/:id', [AdminReviewsController, 'show']).as('admin.reviews.show')
+    router.delete('/reviews/:id', [AdminReviewsController, 'destroy']).as('admin.reviews.destroy')
+    
+    // Conversations - utiliser des noms explicites pour éviter les conflits
+    router.get('/conversations', [AdminConversationsController, 'index']).as('admin.conversations.index')
+    router.get('/conversations/:id', [AdminConversationsController, 'show']).as('admin.conversations.show')
+    
+    // Reports
+    router.get('/reports', [AdminReportsController, 'index']).as('admin.reports.index')
+    
+    // Settings
+    router.get('/settings', [AdminSettingsController, 'show']).as('admin.settings.show')
+    router.put('/settings', [AdminSettingsController, 'update']).as('admin.settings.update')
+    
+    // Global Search
+    router.get('/search', [AdminDashboardController, 'globalSearch']).as('admin.globalSearch')
+  })
+  .prefix('/api/admin')
+  .middleware([middleware.auth(), middleware.adminRoleGuard()])
 
 // Routes publiques (guest)
 router
@@ -251,7 +335,8 @@ router
     router.post('forgot-password', [ForgotPasswordsController, 'requestReset'])
     router.post('reset-password', [ForgotPasswordsController, 'resetPassword'])
     router.get('public/properties', [PublicPropertiesController, 'index'])
+    router.get('public/properties/price-range', [PublicPropertiesController, 'priceRange'])
     router.get('public/properties/:id', [PublicPropertiesController, 'show'])
-    router.post('webhook/payment', [WebhooksController, 'payment'])
+    router.get('public/properties/:id/photos', [PublicPropertiesController, 'photos'])
   })
   .prefix('/api')

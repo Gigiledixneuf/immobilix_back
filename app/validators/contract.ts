@@ -11,8 +11,14 @@ const toDateTime = (date?: Date) => (date ? DateTime.fromJSDate(date) : undefine
  */
 export const StoreContractValidator = vine.compile(
   vine.object({
-    propertyId: vine.number().positive(),
-    tenantId: vine.number().positive(),
+    propertyId: vine
+      .string()
+      .trim()
+      .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+    tenantId: vine
+      .string()
+      .trim()
+      .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
     startDate: vine
       .date()
       .afterOrEqual(new Date().toISOString().split('T')[0])
@@ -33,8 +39,16 @@ export const StoreContractValidator = vine.compile(
  */
 export const UpdateContractValidator = vine.compile(
   vine.object({
-    propertyId: vine.number().positive().optional(),
-    tenantId: vine.number().positive().optional(),
+    propertyId: vine
+      .string()
+      .trim()
+      .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      .optional(),
+    tenantId: vine
+      .string()
+      .trim()
+      .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+      .optional(),
     startDate: vine.date().optional().transform(toDateTime),
     endDate: vine.date().optional().transform(toDateTime),
     description: vine.string().trim().minLength(5).optional(),

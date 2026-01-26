@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import { randomUUID } from 'node:crypto'
 import User from '#models/user'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import Contract from '#models/contract'
@@ -15,10 +16,20 @@ export enum PropertyType {
 }
 
 export default class Property extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(property: Property) {
+    if (!property.uuid) {
+      property.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
 
-  @column()
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ serializeAs: null })
   declare user_id: number
 
   @column()
@@ -38,6 +49,15 @@ export default class Property extends BaseModel {
 
   @column()
   declare postal_code?: string
+
+  @column()
+  declare latitude?: number
+
+  @column()
+  declare longitude?: number
+
+  @column()
+  declare formatted_address?: string
 
   @column()
   declare type: PropertyType | string
@@ -99,6 +119,9 @@ export default class Property extends BaseModel {
 
   @column()
   declare creation_step: number
+
+  @column({ columnName: 'is_public', serializeAs: 'is_public' })
+  declare isPublic: boolean
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime

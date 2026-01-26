@@ -3,6 +3,7 @@ import { CreateInviteValidator } from '#validators/invites'
 import Invite, { InviteStatus } from '#models/invite'
 import Property from '#models/property'
 import NotificationsService from '#services/notifications_service'
+import { ensureUuid } from '#utils/uuid'
 
 function generateCode(length = 8): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -20,21 +21,33 @@ export default class InvitesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'Non authentifié' })
 
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent envoyer des invitations
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour envoyer une invitation. Changez de rôle dans votre profil.',
+      })
+    }
+
     const payload = await request.validateUsing(CreateInviteValidator)
 
+    let resolvedPropertyId: number | null = null
+    let resolvedPropertyUuid: string | null = null
     if (payload.propertyId) {
-      const property = await Property.find(payload.propertyId)
+      ensureUuid(payload.propertyId, 'UUID de propriété invalide')
+      const property = await Property.findBy('uuid', payload.propertyId)
       if (!property) return response.notFound({ message: 'Logement introuvable' })
       if (property.user_id !== user.id) {
         return response.forbidden({ message: "Vous n'êtes pas propriétaire de ce logement" })
       }
+      resolvedPropertyId = property.id
+      resolvedPropertyUuid = property.uuid
     }
 
     const code = generateCode()
 
     const invite = await Invite.create({
       landlordId: user.id,
-      propertyId: payload.propertyId ?? null,
+      propertyId: resolvedPropertyId,
       contact: payload.contact,
       code,
       status: InviteStatus.PENDING,
@@ -46,7 +59,7 @@ export default class InvitesController {
       'Invitation ImmobiliX',
       `Vous avez été invité à rejoindre ImmobiliX. Code: ${code}`,
       {
-      propertyId: payload.propertyId ?? undefined,
+      propertyId: resolvedPropertyUuid ?? undefined,
       code,
     })
 

@@ -191,8 +191,7 @@ export default class HttpExceptionHandler extends ExceptionHandler {
     // En production, vous pourriez envoyer à un service de monitoring
     // comme Sentry, LogRocket, etc.
     if (app.inProduction) {
-      // TODO: Intégrer un service de monitoring d'erreurs
-      // Example: Sentry.captureException(error, { extra: errorContext })
+      // Service de monitoring d'erreurs à intégrer en production
     }
   }
 

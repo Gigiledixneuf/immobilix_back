@@ -1,8 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Property from '#models/property'
 import User from '#models/user'
+import VisitRequest from '#models/visit_request'
+import { randomUUID } from 'node:crypto'
 
 export enum ApplicationStatus {
   PENDING = 'pending',
@@ -11,13 +13,23 @@ export enum ApplicationStatus {
 }
 
 export default class Application extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(application: Application) {
+    if (!application.uuid) {
+      application.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
 
-  @column()
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ serializeAs: null })
   declare propertyId: number
 
-  @column()
+  @column({ serializeAs: null })
   declare tenantId: number
 
   @column()
@@ -25,6 +37,12 @@ export default class Application extends BaseModel {
 
   @column()
   declare status: ApplicationStatus
+
+  /**
+   * Lien avec la visite qui a mené à cette candidature
+   */
+  @column({ serializeAs: null })
+  declare visitRequestId: number | null
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -37,6 +55,11 @@ export default class Application extends BaseModel {
 
   @belongsTo(() => User, { foreignKey: 'tenantId' })
   declare tenant: BelongsTo<typeof User>
+
+  @belongsTo(() => VisitRequest, {
+    foreignKey: 'visitRequestId',
+  })
+  declare visitRequest: BelongsTo<typeof VisitRequest> | null
 }
 
 

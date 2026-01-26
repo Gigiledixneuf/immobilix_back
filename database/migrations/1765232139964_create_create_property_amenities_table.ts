@@ -32,6 +32,6 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    this.schema.dropTable(this.tableName)
+    await this.db.rawQuery(`DROP TABLE IF EXISTS ${this.tableName}`)
   }
 }

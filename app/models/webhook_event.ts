@@ -1,11 +1,21 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
-import Payment from './payment.js'
+import { randomUUID } from 'node:crypto'
 
 export default class WebhookEvent extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(event: WebhookEvent) {
+    if (!event.uuid) {
+      event.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
+
+  @column({ serializeAs: 'id' })
+  declare uuid: string
 
   @column()
   declare eventId: string
@@ -16,7 +26,7 @@ export default class WebhookEvent extends BaseModel {
   @column()
   declare provider: string
 
-  @column()
+  @column({ serializeAs: null })
   declare paymentId: number | null
 
   @column()
@@ -37,7 +47,6 @@ export default class WebhookEvent extends BaseModel {
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare updatedAt: DateTime
 
-  @belongsTo(() => Payment)
-  declare payment: BelongsTo<typeof Payment>
+  // Relation payment supprimée - les paiements ne sont plus gérés dans le MVP
 }
 

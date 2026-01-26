@@ -6,10 +6,13 @@ import vine from '@vinejs/vine'
 export const Step1AddressValidator = vine.compile(
   vine.object({
     address: vine.string().trim().minLength(5),
-    street_number: vine.string().trim().minLength(1),
+    street_number: vine.string().trim().minLength(1).optional(),
     city: vine.string().trim().minLength(2),
     state: vine.string().trim().minLength(2),
-    postal_code: vine.string().trim().minLength(4),
+    postal_code: vine.string().trim().minLength(4).optional(),
+    latitude: vine.number().min(-90).max(90).optional(),
+    longitude: vine.number().min(-180).max(180).optional(),
+    formatted_address: vine.string().trim().minLength(5).optional(),
   })
 )
 
@@ -88,18 +91,19 @@ export const Step7ContactValidator = vine.compile(
 
 /**
  * Validateur pour l'étape 8 : Photos et commodités
+ * Sécurité : 5MB max par image, min 4 images, max 20 images
  */
 export const Step8PhotosAmenitiesValidator = vine.compile(
   vine.object({
     photos: vine
       .array(
         vine.file({
-          size: '10mb',
-          extnames: ['jpg', 'jpeg', 'png', 'webp'],
+          size: '5mb', // Limite de 5MB par image
+          extnames: ['jpg', 'jpeg', 'png', 'webp'], // Extensions autorisées
         })
       )
-      .minLength(5)
-      .maxLength(20),
+      .minLength(4, 'Vous devez fournir au moins 4 photos') // Minimum 4 images
+      .maxLength(20, 'Vous ne pouvez pas uploader plus de 20 photos'), // Maximum 20 images
     // Accepter amenities comme tableau ou string JSON
     // On utilise any() pour accepter n'importe quel type, puis on transforme
     amenities: vine
@@ -134,10 +138,13 @@ export const CompletePropertyValidator = vine.compile(
   vine.object({
     // Étape 1
     address: vine.string().trim().minLength(5),
-    street_number: vine.string().trim().minLength(1),
+    street_number: vine.string().trim().minLength(1).optional(),
     city: vine.string().trim().minLength(2),
     state: vine.string().trim().minLength(2),
-    postal_code: vine.string().trim().minLength(4),
+    postal_code: vine.string().trim().minLength(4).optional(),
+    latitude: vine.number().min(-90).max(90).optional(),
+    longitude: vine.number().min(-180).max(180).optional(),
+    formatted_address: vine.string().trim().minLength(5).optional(),
 
     // Étape 2
     available_from: vine.date({ formats: ['YYYY-MM-DD', 'YYYY-MM-DD HH:mm:ss'] }),
@@ -180,12 +187,12 @@ export const CompletePropertyValidator = vine.compile(
     photos: vine
       .array(
         vine.file({
-          size: '10mb',
-          extnames: ['jpg', 'jpeg', 'png', 'webp'],
+          size: '5mb', // Limite de 5MB par image
+          extnames: ['jpg', 'jpeg', 'png', 'webp'], // Extensions autorisées
         })
       )
-      .minLength(5)
-      .maxLength(20),
+      .minLength(4, 'Vous devez fournir au moins 4 photos') // Minimum 4 images
+      .maxLength(20, 'Vous ne pouvez pas uploader plus de 20 photos'), // Maximum 20 images
     amenities: vine.array(vine.string().trim()).optional(),
 
     // Nom de la propriété (généré ou fourni)

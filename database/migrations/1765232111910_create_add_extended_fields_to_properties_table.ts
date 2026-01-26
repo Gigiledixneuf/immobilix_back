@@ -37,23 +37,49 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    this.schema.alterTable(this.tableName, (table) => {
-      table.dropColumn('street_number')
-      table.dropColumn('state')
-      table.dropColumn('postal_code')
-      table.dropColumn('available_from')
-      table.dropColumn('available_time')
-      table.dropColumn('rental_reason')
-      table.dropColumn('rental_reason_other')
-      table.dropColumn('property_use_type')
-      table.dropColumn('year_built')
-      table.dropColumn('bathrooms')
-      table.dropColumn('security_deposit')
-      table.dropColumn('deposit_months')
-      table.dropColumn('land_size')
-      table.dropColumn('contact_phone')
-      table.dropColumn('additional_info')
-      table.dropColumn('creation_step')
-    })
+    const tableResult: any = await this.db.rawQuery(
+      `
+      SELECT 1
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      LIMIT 1
+    `,
+      [this.tableName]
+    )
+    const hasTable = (tableResult[0] || []).length > 0
+    if (!hasTable) {
+      return
+    }
+
+    const dropColumnIfExists = async (column: string) => {
+      const colResult: any = await this.db.rawQuery(
+        `SHOW COLUMNS FROM ${this.tableName} LIKE '${column}'`
+      )
+      if (colResult[0] && colResult[0].length > 0) {
+        try {
+          await this.db.rawQuery(`ALTER TABLE ${this.tableName} DROP COLUMN ${column}`)
+        } catch {
+          // Ignore if already dropped
+        }
+      }
+    }
+
+    await dropColumnIfExists('street_number')
+    await dropColumnIfExists('state')
+    await dropColumnIfExists('postal_code')
+    await dropColumnIfExists('available_from')
+    await dropColumnIfExists('available_time')
+    await dropColumnIfExists('rental_reason')
+    await dropColumnIfExists('rental_reason_other')
+    await dropColumnIfExists('property_use_type')
+    await dropColumnIfExists('year_built')
+    await dropColumnIfExists('bathrooms')
+    await dropColumnIfExists('security_deposit')
+    await dropColumnIfExists('deposit_months')
+    await dropColumnIfExists('land_size')
+    await dropColumnIfExists('contact_phone')
+    await dropColumnIfExists('additional_info')
+    await dropColumnIfExists('creation_step')
   }
 }

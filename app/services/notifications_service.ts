@@ -1,5 +1,7 @@
+import logger from '@adonisjs/core/services/logger'
 import Notification from '#models/notification'
 import FirebaseService from '#services/firebase_service'
+import { getRealtimeEventBus } from '#services/realtime_event_bus'
 
 export default class NotificationsService {
   /**
@@ -24,16 +26,25 @@ export default class NotificationsService {
 
     // Envoyer via WebSocket en temps réel
     try {
-      // Importer dynamiquement pour éviter les erreurs si le service n'est pas disponible
-      // Utiliser un chemin relatif avec l'extension .js pour ESM
-      const websocketModule = await import('#services/websocket_service')
-      const websocketService = websocketModule.getWebSocketService()
-      await websocketService.sendToUser(userId, notification)
+      const eventBus = getRealtimeEventBus()
+      await eventBus.publish({
+        type: 'notification.created',
+        payload: {
+          userId,
+          notification: {
+            id: notification.id,
+            title: notification.title,
+            message: notification.message,
+            type: notification.type,
+            isRead: notification.isRead,
+            data: notification.data,
+            createdAt: notification.createdAt.toISO(),
+          },
+        },
+      })
     } catch (error: any) {
-      // Ne pas bloquer si WebSocket échoue (l'utilisateur récupérera la notification à la prochaine connexion)
-      // Logger l'erreur mais continuer l'exécution
-      const logger = await import('@adonisjs/core/services/logger')
-      logger.default.warn('Error sending notification via WebSocket:', error?.message || String(error))
+      const msg = error?.message ?? error?.code ?? String(error)
+      logger.warn(`WebSocket notification failed (user ${userId}): ${msg}`)
     }
 
     // Envoyer via FCM (push notification)
@@ -48,15 +59,14 @@ export default class NotificationsService {
       // Ajouter l'ID de la notification dans les données
       const finalFcmData = {
         ...fcmData,
-        notificationId: String(notification.id),
+        notificationId: String(notification.uuid),
         type: notification.type,
       }
 
       await FirebaseService.sendToUser(userId, title, message, finalFcmData)
     } catch (error: any) {
-      // Ne pas bloquer si FCM échoue
-      const logger = await import('@adonisjs/core/services/logger')
-      logger.default.warn('Error sending notification via FCM:', error?.message || String(error))
+      const msg = error?.message ?? error?.code ?? String(error)
+      logger.warn(`FCM send failed (user ${userId}): ${msg}`)
     }
 
     return notification
@@ -88,9 +98,8 @@ export default class NotificationsService {
 
       await FirebaseService.sendToUser(userId, title, message, finalFcmData)
     } catch (error: any) {
-      // Ne pas bloquer si FCM échoue
-      const logger = await import('@adonisjs/core/services/logger')
-      logger.default.warn('Error sending FCM notification:', error?.message || String(error))
+      const msg = error?.message ?? error?.code ?? String(error)
+      logger.warn(`FCM send failed (user ${userId}): ${msg}`)
     }
   }
 
@@ -103,8 +112,8 @@ export default class NotificationsService {
     body: string,
     data?: Record<string, unknown>
   ) {
-    // TODO: SMS/Email provider
-    console.log(`[NOTIFY contact:${contact}] ${title} - ${body}`, data ?? {})
+    // SMS/Email provider à implémenter
+    logger.debug(`[NOTIFY contact:${contact}] ${title} - ${body}`, data ?? {})
   }
 }
 

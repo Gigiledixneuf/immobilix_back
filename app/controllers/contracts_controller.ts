@@ -6,9 +6,7 @@ import User from '#models/user'
 import { StoreContractValidator, UpdateContractValidator } from '#validators/contract'
 import { DateTime } from 'luxon'
 import HederaService, { HederaContractData } from '#services/hedera_service'
-import Payment from '#models/payment'
-import { PaymentMethods, PaymentStatus } from '#models/payment'
-import { PayDepositValidator } from '#validators/payment'
+import { ensureUuid } from '#utils/uuid'
 
 @inject()
 export default class ContractsController {
@@ -22,33 +20,37 @@ export default class ContractsController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    await user.load('roles')
-    const userRoles = user.roles?.map((role) => role.name) || []
+    // ISOLATION STRICTE : Filtrer par rôle actif
+    if (!user.activeRole) {
+      return response.forbidden({
+        message: 'Aucun rôle actif défini. Veuillez sélectionner un rôle dans votre profil.',
+      })
+    }
 
     let contracts
 
-    // Admin voit tous les contrats
-    if (userRoles.includes('admin')) {
-      contracts = await Contract.query().preload('property').preload('tenant')
-    }
-    // Propriétaire voit les contrats de ses propriétés
-    else if (userRoles.includes('bailleur')) {
+    // En mode BAILLEUR : voir les contrats de ses propriétés
+    if (user.activeRole === 'landlord') {
       const userProperties = await Property.query().where('user_id', user.id).select('id')
       const propertyIds = userProperties.map((prop) => prop.id)
 
+      if (propertyIds.length === 0) {
+        contracts = []
+      } else {
+        contracts = await Contract.query()
+          .whereIn('propertyId', propertyIds)
+          .preload('property')
+          .preload('tenant')
+      }
+    }
+    // En mode LOCATAIRE : voir seulement ses propres contrats
+    else if (user.activeRole === 'tenant') {
       contracts = await Contract.query()
-        .whereIn('propertyId', propertyIds)
+        .where('tenantId', user.id)
         .preload('property')
         .preload('tenant')
     }
-    // Locataire voit seulement ses propres contrats
-    else if (userRoles.includes('locataire')) {
-      contracts = await Contract.query()
-        .where('tenant_id', user.id)
-        .preload('property')
-        .preload('tenant')
-    }
-    // Autres rôles non autorisés
+    // Rôle actif invalide
     else {
       return response.forbidden({
         message: "Vous n'avez pas accès aux contrats",
@@ -68,28 +70,25 @@ export default class ContractsController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    await user.load('roles')
-    const userRoles = user.roles?.map((role) => role.name) || []
-
-    // Vérifier les permissions
-    const canCreateContract = userRoles.some((role) => ['bailleur'].includes(role))
-
-    if (!canCreateContract) {
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent créer un contrat
+    if (user.activeRole !== 'landlord') {
       return response.forbidden({
-        message: "Vous n'avez pas la permission de créer un contrat",
+        message: 'Vous devez être en mode BAILLEUR pour créer un contrat. Changez de rôle dans votre profil.',
       })
     }
 
     const payload = await request.validateUsing(StoreContractValidator)
 
     // Vérifier que la propriété existe
-    const property = await Property.find(payload.propertyId)
+    ensureUuid(payload.propertyId, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', payload.propertyId)
     if (!property) {
       return response.notFound({ message: 'Propriété introuvable' })
     }
 
     // Vérifier que le locataire existe et a le bon rôle
-    const tenant = await User.find(payload.tenantId)
+    ensureUuid(payload.tenantId, 'UUID de locataire invalide')
+    const tenant = await User.findBy('uuid', payload.tenantId)
     if (!tenant) {
       return response.notFound({ message: 'Locataire introuvable' })
     }
@@ -103,17 +102,15 @@ export default class ContractsController {
     }
 
     // Vérifier que le bailleur peut créer un contrat pour cette propriété
-    if (userRoles.includes('bailleur') && !userRoles.includes('admin')) {
-      const userProperty = await Property.query()
-        .where('id', payload.propertyId)
-        .where('user_id', user.id)
-        .first()
+    const userProperty = await Property.query()
+      .where('id', property.id)
+      .where('user_id', user.id)
+      .first()
 
-      if (!userProperty) {
-        return response.forbidden({
-          message: 'Vous ne pouvez créer des contrats que pour vos propres propriétés',
-        })
-      }
+    if (!userProperty) {
+      return response.forbidden({
+        message: 'Vous ne pouvez créer des contrats que pour vos propres propriétés',
+      })
     }
 
     // Validation des dates
@@ -142,7 +139,7 @@ export default class ContractsController {
 
     // Vérifier les chevauchements de contrats
     const existingContract = await Contract.query()
-      .where('propertyId', payload.propertyId)
+      .where('propertyId', property.id)
       .where('status', 'active')
       .where((query) => {
         if (startDate) {
@@ -161,8 +158,9 @@ export default class ContractsController {
 
     // Création du contrat dans la base de données
     const contract = await Contract.create({
-      propertyId: payload.propertyId,
-      tenantId: payload.tenantId,
+      user_id: user.id, // ID du bailleur (propriétaire)
+      propertyId: property.id,
+      tenantId: tenant.id,
       startDate: startDate,
       endDate: endDate || null,
       description: payload.description,
@@ -196,7 +194,12 @@ export default class ContractsController {
       contract.hederaContractId = hederaContratId
       await contract.save()
     } catch (error) {
-      console.log('Erreur lors de la création du contrat Hedera: ', error)
+      const logger = (await import('@adonisjs/core/services/logger')).default
+      logger.error('Erreur lors de la création du contrat Hedera', { 
+        error, 
+        contractId: contract.id,
+        propertyId: payload.propertyId 
+      })
       // NOTE: En production, vous pourriez vouloir annuler la transaction DB ou marquer le contrat comme 'Hedera_failed'
     }
 
@@ -227,18 +230,19 @@ export default class ContractsController {
       return response.notFound({ message: 'Contrat introuvable' })
     }
 
-    await user.load('roles')
-    const userRoles = user.roles?.map((role) => role.name) || []
+    // ISOLATION STRICTE : Vérifier l'accès selon le rôle actif
+    if (!user.activeRole) {
+      return response.forbidden({
+        message: 'Aucun rôle actif défini. Veuillez sélectionner un rôle dans votre profil.',
+      })
+    }
 
-    // Vérifier les permissions d'accès
     let hasAccess = false
 
-    if (userRoles.includes('admin')) {
-      hasAccess = true
-    } else if (userRoles.includes('bailleur')) {
+    if (user.activeRole === 'landlord') {
       const property = await Property.find(contract.propertyId)
       hasAccess = property?.user_id === user.id
-    } else if (userRoles.includes('locataire')) {
+    } else if (user.activeRole === 'tenant') {
       hasAccess = contract.tenantId === user.id
     }
 
@@ -258,55 +262,6 @@ export default class ContractsController {
    * 💰 Payer la caution/dépôt d’un contrat (intention de paiement)
    * POST /api/contracts/:id/pay-deposit
    */
-  async payDeposit({ params, request, auth, response }: HttpContext) {
-    const user = auth.user
-    if (!user) return response.unauthorized({ message: 'Non authentifié' })
-
-    const contract = await Contract.find(params.id)
-    if (!contract) return response.notFound({ message: 'Contrat introuvable' })
-
-    // Autoriser le locataire lié au contrat à initier le paiement du dépôt
-    if (contract.tenantId !== user.id) {
-      return response.forbidden({ message: "Vous n'êtes pas le locataire de ce contrat" })
-    }
-
-    const payload = await request.validateUsing(PayDepositValidator)
-    const amount = payload.amount ?? contract.depositAmount ?? 0
-    if (!amount || amount <= 0) {
-      return response.badRequest({ message: 'Montant de dépôt invalide' })
-    }
-
-    const payment = await Payment.create({
-      contractId: contract.id,
-      amount,
-      currency: contract.currency,
-      paymentMethod: payload.paymentMethod as PaymentMethods,
-      status: PaymentStatus.PENDING,
-    })
-
-    // Si crypto, tenter un paiement on-chain synchronement (HBAR/USDC)
-    if (payload.paymentMethod === PaymentMethods.HBAR || payload.paymentMethod === PaymentMethods.USDC) {
-      try {
-        const txId = await this.hederaService.makePaymentOnChain({
-          dbContractId: contract.id,
-          paymentId: payment.id,
-          amount: payment.amount,
-          paymentMethod: payload.paymentMethod,
-        })
-        payment.transactionId = txId
-        payment.status = PaymentStatus.PAID
-        await payment.save()
-      } catch (e) {
-        payment.status = PaymentStatus.FAILED
-        await payment.save()
-        return response.internalServerError({ message: 'Erreur paiement Hedera', error: String(e) })
-      }
-    }
-
-    // Pour Mobile Money, le paiement sera confirmé via webhook + queue
-    return response.created({ message: 'Intention de paiement créée', data: payment })
-  }
-
   /**
    * ✏️ Modifier un contrat
    */
@@ -314,19 +269,16 @@ export default class ContractsController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    const contract = await Contract.find(params.id)
+    ensureUuid(params.id, 'UUID de contrat invalide')
+    const contract = await Contract.findBy('uuid', params.id)
     if (!contract) {
       return response.notFound({ message: 'Contrat introuvable' })
     }
 
-    await user.load('roles')
-    const userRoles = user.roles?.map((role) => role.name) || []
-
-    // 🔒 Vérifier que seul le bailleur peut modifier
-    const isBailleur = userRoles.includes('bailleur')
-    if (!isBailleur) {
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent modifier
+    if (user.activeRole !== 'landlord') {
       return response.forbidden({
-        message: 'Seuls les bailleurs peuvent modifier les contrats',
+        message: 'Vous devez être en mode BAILLEUR pour modifier un contrat. Changez de rôle dans votre profil.',
       })
     }
 
@@ -346,7 +298,8 @@ export default class ContractsController {
 
     // Vérifications supplémentaires si modification de propriété
     if (payload.propertyId !== undefined) {
-      const newProperty = await Property.find(payload.propertyId)
+      ensureUuid(payload.propertyId, 'UUID de propriété invalide')
+      const newProperty = await Property.findBy('uuid', payload.propertyId)
       if (!newProperty) {
         return response.notFound({ message: 'Nouvelle propriété introuvable' })
       }
@@ -360,7 +313,8 @@ export default class ContractsController {
     }
 
     if (payload.tenantId !== undefined) {
-      const tenant = await User.find(payload.tenantId)
+      ensureUuid(payload.tenantId, 'UUID de locataire invalide')
+      const tenant = await User.findBy('uuid', payload.tenantId)
       if (!tenant) {
         return response.notFound({ message: 'Locataire introuvable' })
       }
@@ -415,7 +369,11 @@ export default class ContractsController {
 
         await this.hederaService.updateContractOnChain(updatesForHedera)
       } catch (error) {
-        console.log('Erreur lors de la mise à jour du contrat Hedera', error)
+        const logger = (await import('@adonisjs/core/services/logger')).default
+        logger.error('Erreur lors de la mise à jour du contrat Hedera', { 
+          error, 
+          contractId: contract.id 
+        })
       }
     }
 
@@ -436,25 +394,22 @@ export default class ContractsController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    const contract = await Contract.find(params.id)
+    ensureUuid(params.id, 'UUID de contrat invalide')
+    const contract = await Contract.findBy('uuid', params.id)
     if (!contract) {
       return response.notFound({ message: 'Contrat introuvable' })
     }
 
-    await user.load('roles')
-    const userRoles = user.roles?.map((role) => role.name) || []
-
-    // Vérifier les permissions de suppression
-    let canDelete = false
-
-    if (userRoles.includes('admin')) {
-      canDelete = true
-    } else if (userRoles.includes('bailleur')) {
-      const property = await Property.find(contract.propertyId)
-      canDelete = property?.user_id === user.id
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent supprimer
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour supprimer un contrat. Changez de rôle dans votre profil.',
+      })
     }
 
-    if (!canDelete) {
+    // Vérifier que le bailleur possède la propriété du contrat
+    const property = await Property.find(contract.propertyId)
+    if (!property || property.user_id !== user.id) {
       return response.forbidden({
         message: "Vous n'avez pas la permission de supprimer ce contrat",
       })
@@ -465,7 +420,11 @@ export default class ContractsController {
       try {
         await this.hederaService.terminateLease(contract.id)
       } catch (error) {
-        console.error('Erreur lors de la résiliation du contrat Hedera:', error)
+        const logger = (await import('@adonisjs/core/services/logger')).default
+        logger.error('Erreur lors de la résiliation du contrat Hedera', { 
+          error, 
+          contractId: contract.id 
+        })
         // On continue quand même avec la suppression en DB
       }
     }

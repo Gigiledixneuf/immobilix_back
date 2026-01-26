@@ -22,6 +22,9 @@ export default class PropertySeeder extends BaseSeeder {
         name: 'Charmant studio au centre-ville',
         address: '12 rue de la République',
         city: 'Paris',
+        latitude: 48.8566,
+        longitude: 2.3522,
+        formatted_address: '12 rue de la République, Paris, France',
         type: 'studio',
         surface: 28,
         rooms: 1,
@@ -34,6 +37,9 @@ export default class PropertySeeder extends BaseSeeder {
         name: 'Appartement T2 lumineux',
         address: '45 avenue Victor Hugo',
         city: 'Lyon',
+        latitude: 45.764,
+        longitude: 4.8357,
+        formatted_address: '45 avenue Victor Hugo, Lyon, France',
         type: 'apartment',
         surface: 45,
         rooms: 2,
@@ -46,6 +52,9 @@ export default class PropertySeeder extends BaseSeeder {
         name: 'Maison familiale avec jardin',
         address: '8 impasse des Lilas',
         city: 'Toulouse',
+        latitude: 43.6047,
+        longitude: 1.4442,
+        formatted_address: '8 impasse des Lilas, Toulouse, France',
         type: 'house',
         surface: 120,
         rooms: 5,
@@ -58,6 +67,9 @@ export default class PropertySeeder extends BaseSeeder {
         name: 'Loft industriel rénové',
         address: '22 quai du Commerce',
         city: 'Nantes',
+        latitude: 47.2184,
+        longitude: -1.5536,
+        formatted_address: '22 quai du Commerce, Nantes, France',
         type: 'apartment',
         surface: 70,
         rooms: 3,
@@ -70,6 +82,9 @@ export default class PropertySeeder extends BaseSeeder {
         name: 'Studio cosy proche université',
         address: '3 rue Pasteur',
         city: 'Lille',
+        latitude: 50.6292,
+        longitude: 3.0573,
+        formatted_address: '3 rue Pasteur, Lille, France',
         type: 'studio',
         surface: 20,
         rooms: 1,
@@ -84,10 +99,13 @@ export default class PropertySeeder extends BaseSeeder {
       // Sélection aléatoire d’un bailleur
       const randomBailleur = bailleurs[Math.floor(Math.random() * bailleurs.length)]
 
-      await Property.create({
-        ...property,
-        user_id: randomBailleur.id,
-      })
+      await Property.firstOrCreate(
+        { name: property.name },
+        {
+          ...property,
+          user_id: randomBailleur.id,
+        }
+      )
     }
   }
 }

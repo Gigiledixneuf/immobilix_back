@@ -13,6 +13,9 @@ import Notification from '#models/notification'
 export default class WebSocketService {
   private wss: WebSocketServer | null = null
   private connectedUsers: Map<number, Set<WebSocket>> = new Map() // userId -> Set of WebSockets
+  private heartbeatInterval: NodeJS.Timeout | null = null
+  private readonly heartbeatIntervalMs = 25000
+  private propertySubscriptions: Map<string, Set<WebSocket>> = new Map()
 
   /**
    * Initialise le serveur WebSocket avec noServer: true
@@ -23,12 +26,13 @@ export default class WebSocketService {
       path: '/notifications',
     })
 
-    // Utiliser console.log car logger peut ne pas être disponible lors de l'initialisation
     try {
       logger.info('WebSocket service initialized (noServer mode)')
     } catch {
-      console.log('✅ WebSocket service initialized (noServer mode)')
+      // Fallback silencieux si logger n'est pas disponible lors de l'initialisation
     }
+
+    this.startHeartbeat()
   }
 
   /**
@@ -111,6 +115,13 @@ export default class WebSocketService {
         this.connectedUsers.set(userId, new Set())
       }
       this.connectedUsers.get(userId)!.add(ws)
+      logger.info(`WebSocket: User ${userId} joined room user:${userId}`)
+
+      const socketWithState = ws as WebSocket & { isAlive?: boolean }
+      socketWithState.isAlive = true
+      ws.on('pong', () => {
+        socketWithState.isAlive = true
+      })
 
       // Envoyer un message de bienvenue
       ws.send(
@@ -126,6 +137,22 @@ export default class WebSocketService {
           const message = JSON.parse(data.toString())
           if (message.type === 'ping') {
             ws.send(JSON.stringify({ type: 'pong' }))
+          } else if (message.type === 'subscribe' && message.topic === 'property' && message.id) {
+            const propertyId = String(message.id)
+            if (!this.propertySubscriptions.has(propertyId)) {
+              this.propertySubscriptions.set(propertyId, new Set())
+            }
+            this.propertySubscriptions.get(propertyId)!.add(ws)
+            logger.info(`WebSocket: User ${userId} subscribed to property:${propertyId}`)
+          } else if (message.type === 'unsubscribe' && message.topic === 'property' && message.id) {
+            const propertyId = String(message.id)
+            const subscribers = this.propertySubscriptions.get(propertyId)
+            if (subscribers) {
+              subscribers.delete(ws)
+              if (subscribers.size === 0) {
+                this.propertySubscriptions.delete(propertyId)
+              }
+            }
           }
         } catch (error) {
           // Ignorer les erreurs de parsing
@@ -143,6 +170,14 @@ export default class WebSocketService {
             this.connectedUsers.delete(userId)
           }
         }
+
+        // Nettoyer les abonnements property
+        this.propertySubscriptions.forEach((sockets, propertyId) => {
+          sockets.delete(ws)
+          if (sockets.size === 0) {
+            this.propertySubscriptions.delete(propertyId)
+          }
+        })
       })
 
       // Gestion des erreurs
@@ -187,6 +222,13 @@ export default class WebSocketService {
   }
 
   /**
+   * Authentifie un token pour Socket.IO
+   */
+  async authenticateTokenString(tokenString: string): Promise<User | null> {
+    return this.authenticateToken(tokenString)
+  }
+
+  /**
    * Vérifie manuellement un token en cherchant dans la base de données
    */
   private async verifyTokenManually(tokenString: string): Promise<User | null> {
@@ -207,7 +249,7 @@ export default class WebSocketService {
       // L'ID du token peut être en base64 (MTI0 = 124 en base64)
       // Essayer de décoder d'abord, sinon utiliser directement
       let tokenId: string | number = prefixAndId.replace('oat_', '')
-      const tokenHash = tokenParts[1]
+      const tokenSecret = tokenParts[1]
 
       // Essayer de décoder l'ID si c'est du base64
       try {
@@ -251,11 +293,11 @@ export default class WebSocketService {
       }
 
       // Vérifier le hash du token
-      // Le hash stocké dans la DB est le hash du token complet
-      const isValid = await hash.verify(tokenRecord.hash, tokenString)
+      // Le hash stocké est celui du secret, pas du token complet
+      const isValid = await hash.verify(tokenRecord.hash, tokenSecret)
 
       if (!isValid) {
-        logger.warn(`Token hash mismatch: ${tokenId}`)
+        logger.debug(`Token hash mismatch: ${tokenId}`)
         return null
       }
 
@@ -301,7 +343,7 @@ export default class WebSocketService {
 
     try {
       const notificationData = {
-        type: 'notification',
+        type: 'notification:received',
         data: {
           id: notification.id,
           title: notification.title,
@@ -321,7 +363,9 @@ export default class WebSocketService {
         }
       })
 
-      logger.info(`Notification sent to user ${userId} via WebSocket (${userSockets.size} connection(s))`)
+      logger.info(
+        `WebSocket emit notification:received to user ${userId} (${userSockets.size} connection(s))`
+      )
     } catch (error) {
       logger.error(`Error sending notification to user ${userId}:`, error)
     }
@@ -352,10 +396,35 @@ export default class WebSocketService {
         }
       })
 
-      logger.debug(`Message sent to user ${userId} via WebSocket (${userSockets.size} connection(s))`)
+      logger.info(
+        `WebSocket emit message:received to user ${userId} (${userSockets.size} connection(s))`
+      )
     } catch (error) {
       logger.error(`Error sending message to user ${userId}:`, error)
     }
+  }
+
+  /**
+   * Envoie un message aux abonnés d'une propriété
+   */
+  async sendToProperty(propertyId: number | string, payload: Record<string, any>) {
+    if (!this.wss) {
+      logger.warn('WebSocket service not initialized')
+      return
+    }
+
+    const key = String(propertyId)
+    const subscribers = this.propertySubscriptions.get(key)
+    if (!subscribers || subscribers.size === 0) {
+      return
+    }
+
+    const message = JSON.stringify(payload)
+    subscribers.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(message)
+      }
+    })
   }
 
   /**
@@ -377,15 +446,47 @@ export default class WebSocketService {
    */
   close() {
     if (this.wss) {
+      this.stopHeartbeat()
       this.wss.close()
       this.wss = null
       this.connectedUsers.clear()
+      this.propertySubscriptions.clear()
       // Utiliser console au lieu de logger car le logger peut ne pas être disponible pendant le shutdown
       try {
         logger.info('WebSocket service closed')
       } catch {
-        console.log('WebSocket service closed')
+        // Fallback si logger n'est pas disponible
       }
+    }
+  }
+
+  private startHeartbeat() {
+    if (this.heartbeatInterval) {
+      return
+    }
+    this.heartbeatInterval = setInterval(() => {
+      for (const [, sockets] of this.connectedUsers) {
+        sockets.forEach((ws) => {
+          const socketWithState = ws as WebSocket & { isAlive?: boolean }
+          if (socketWithState.isAlive === false) {
+            ws.terminate()
+            return
+          }
+          socketWithState.isAlive = false
+          try {
+            ws.ping()
+          } catch (error) {
+            ws.terminate()
+          }
+        })
+      }
+    }, this.heartbeatIntervalMs)
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
     }
   }
 }

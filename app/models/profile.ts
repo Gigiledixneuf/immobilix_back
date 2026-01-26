@@ -4,6 +4,9 @@ import { uniqueRule } from '#validators/rules/unique'
 export const UpdateProfileValidator = vine.compile(
   vine.object({
     fullName: vine.string().maxLength(255).optional(),
+    firstName: vine.string().maxLength(100).optional(),
+    lastName: vine.string().maxLength(100).optional(),
+    profilePhoto: vine.string().maxLength(255).optional(),
     email: vine
       .string()
       .email()
@@ -11,7 +14,7 @@ export const UpdateProfileValidator = vine.compile(
         uniqueRule({
           table: 'users',
           column: 'email',
-          except: (field: any) => field.meta.userId,
+          except: (field: any) => field.meta?.userId,
         })
       )
       .optional(),

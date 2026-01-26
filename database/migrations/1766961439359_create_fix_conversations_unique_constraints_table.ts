@@ -4,83 +4,135 @@ export default class extends BaseSchema {
   protected tableName = 'conversations'
 
   async up() {
-    // Utiliser alterTable pour modifier la table
-    this.schema.alterTable(this.tableName, (table) => {
-      // Vérifier et ajouter property_id si nécessaire (sera ignoré si existe déjà)
-      // Note: On ne peut pas vérifier directement, donc on essaie de l'ajouter
-      // Si la colonne existe déjà, cela échouera mais on peut l'ignorer
-    })
+    const tableResult: any = await this.db.rawQuery(
+      `
+      SELECT 1
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      LIMIT 1
+    `,
+      [this.tableName]
+    )
+    const hasTable = (tableResult[0] || []).length > 0
+    if (!hasTable) {
+      return
+    }
 
-    // Utiliser des requêtes SQL brutes pour gérer les contraintes
-    // Supprimer l'ancienne contrainte unique si elle existe
-    try {
-      await this.db.rawQuery(
-        `ALTER TABLE conversations DROP INDEX conversations_user1_id_user2_id_unique`
-      )
-    } catch (error: any) {
-      // Ignorer l'erreur si la contrainte n'existe pas
-      if (!error.message?.includes("doesn't exist") && !error.message?.includes("Unknown key")) {
-        console.log('Note: Ancienne contrainte déjà supprimée ou inexistante')
+    const indexResult: any = await this.db.rawQuery(`SHOW INDEXES FROM ${this.tableName}`)
+    const indexRows = indexResult[0] || []
+    const indexNames = new Set(indexRows.map((idx: any) => idx.Key_name))
+
+    if (indexNames.has('conversations_user1_id_user2_id_unique')) {
+      try {
+        await this.db.rawQuery(
+          `ALTER TABLE ${this.tableName} DROP INDEX conversations_user1_id_user2_id_unique`
+        )
+      } catch {
+        // Ignore if already dropped
       }
     }
 
-    // Vérifier si property_id existe, sinon l'ajouter
-    const columnExists = await this.db
-      .from('information_schema.COLUMNS')
-      .where('TABLE_SCHEMA', this.db.rawQuery('DATABASE()'))
-      .where('TABLE_NAME', 'conversations')
-      .where('COLUMN_NAME', 'property_id')
-      .count('* as count')
-      .first()
-
-    if (!columnExists || (columnExists as any).count === 0) {
-      await this.db.rawQuery(`
-        ALTER TABLE conversations 
-        ADD COLUMN property_id INT UNSIGNED NULL,
-        ADD INDEX idx_property_id (property_id),
-        ADD FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
-      `)
-    }
-
-    // Supprimer la nouvelle contrainte si elle existe déjà
-    try {
-      await this.db.rawQuery(
-        `ALTER TABLE conversations DROP INDEX conversations_user1_id_user2_id_property_id_unique`
-      )
-    } catch (error: any) {
-      // Ignorer l'erreur si la contrainte n'existe pas
-      if (!error.message?.includes("doesn't exist") && !error.message?.includes("Unknown key")) {
-        console.log('Note: Nouvelle contrainte déjà supprimée ou inexistante')
+    const columnResult: any = await this.db.rawQuery(
+      `SHOW COLUMNS FROM ${this.tableName} LIKE 'property_id'`
+    )
+    const hasPropertyId = columnResult[0] && columnResult[0].length > 0
+    if (!hasPropertyId) {
+      try {
+        await this.db.rawQuery(`
+          ALTER TABLE ${this.tableName}
+          ADD COLUMN property_id INT UNSIGNED NULL,
+          ADD INDEX idx_property_id (property_id),
+          ADD FOREIGN KEY (property_id) REFERENCES properties(id) ON DELETE SET NULL
+        `)
+      } catch {
+        // Ignore if cannot add due to existing partial state
       }
     }
 
-    // Créer la nouvelle contrainte unique avec property_id
-    await this.db.rawQuery(`
-      ALTER TABLE conversations 
-      ADD UNIQUE KEY conversations_user1_id_user2_id_property_id_unique (user1_id, user2_id, property_id)
-    `)
+    if (indexNames.has('conversations_user1_id_user2_id_property_id_unique')) {
+      try {
+        await this.db.rawQuery(
+          `ALTER TABLE ${this.tableName} DROP INDEX conversations_user1_id_user2_id_property_id_unique`
+        )
+      } catch {
+        // Ignore if already dropped
+      }
+    }
+
+    const duplicateResult: any = await this.db.rawQuery(
+      `
+      SELECT user1_id, user2_id, property_id, COUNT(*) as cnt
+      FROM ${this.tableName}
+      GROUP BY user1_id, user2_id, property_id
+      HAVING cnt > 1
+      LIMIT 1
+    `
+    )
+    const hasDuplicates = (duplicateResult[0] || []).length > 0
+    if (!hasDuplicates) {
+      try {
+        await this.db.rawQuery(`
+          ALTER TABLE ${this.tableName}
+          ADD UNIQUE KEY conversations_user1_id_user2_id_property_id_unique (user1_id, user2_id, property_id)
+        `)
+      } catch {
+        // Ignore if already exists
+      }
+    }
   }
 
   async down() {
-    // Supprimer la nouvelle contrainte
-    try {
-      await this.db.rawQuery(
-        `ALTER TABLE conversations DROP INDEX conversations_user1_id_user2_id_property_id_unique`
-      )
-    } catch (error: any) {
-      // Ignorer l'erreur si la contrainte n'existe pas
-      console.log('Note: Contrainte déjà supprimée ou inexistante')
+    const tableResult: any = await this.db.rawQuery(
+      `
+      SELECT 1
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      LIMIT 1
+    `,
+      [this.tableName]
+    )
+    const hasTable = (tableResult[0] || []).length > 0
+    if (!hasTable) {
+      return
     }
 
-    // Recréer l'ancienne contrainte
-    try {
-      await this.db.rawQuery(`
-        ALTER TABLE conversations 
-        ADD UNIQUE KEY conversations_user1_id_user2_id_unique (user1_id, user2_id)
-      `)
-    } catch (error: any) {
-      // Ignorer l'erreur si la contrainte existe déjà
-      console.log('Note: Contrainte déjà existante')
+    const indexResult: any = await this.db.rawQuery(`SHOW INDEXES FROM ${this.tableName}`)
+    const indexRows = indexResult[0] || []
+    const indexNames = new Set(indexRows.map((idx: any) => idx.Key_name))
+
+    if (indexNames.has('conversations_user1_id_user2_id_property_id_unique')) {
+      try {
+        await this.db.rawQuery(
+          `ALTER TABLE ${this.tableName} DROP INDEX conversations_user1_id_user2_id_property_id_unique`
+        )
+      } catch {
+        // Ignore if already dropped
+      }
+    }
+
+    if (!indexNames.has('conversations_user1_id_user2_id_unique')) {
+      const duplicateResult: any = await this.db.rawQuery(
+        `
+        SELECT user1_id, user2_id, COUNT(*) as cnt
+        FROM ${this.tableName}
+        GROUP BY user1_id, user2_id
+        HAVING cnt > 1
+        LIMIT 1
+      `
+      )
+      const hasDuplicates = (duplicateResult[0] || []).length > 0
+      if (!hasDuplicates) {
+        try {
+          await this.db.rawQuery(`
+            ALTER TABLE ${this.tableName}
+            ADD UNIQUE KEY conversations_user1_id_user2_id_unique (user1_id, user2_id)
+          `)
+        } catch {
+          // Ignore if already exists
+        }
+      }
     }
   }
 }

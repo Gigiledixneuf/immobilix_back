@@ -1,11 +1,22 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, manyToMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, manyToMany } from '@adonisjs/lucid/orm'
 import type { ManyToMany } from '@adonisjs/lucid/types/relations'
 import User from '#models/user'
+import { randomUUID } from 'node:crypto'
 
 export default class Role extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(role: Role) {
+    if (!role.uuid) {
+      role.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
+
+  @column({ serializeAs: 'id' })
+  declare uuid: string
 
   @column()
   declare name: string

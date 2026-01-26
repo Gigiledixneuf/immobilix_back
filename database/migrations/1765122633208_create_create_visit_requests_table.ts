@@ -52,6 +52,42 @@ export default class extends BaseSchema {
   }
 
   async down() {
-    this.schema.dropTable(this.tableName)
+    const tableResult: any = await this.db.rawQuery(
+      `
+      SELECT 1
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      LIMIT 1
+    `,
+      [this.tableName]
+    )
+    const hasTable = (tableResult[0] || []).length > 0
+    if (!hasTable) {
+      return
+    }
+
+    const fkResult: any = await this.db.rawQuery(
+      `
+      SELECT TABLE_NAME, CONSTRAINT_NAME
+      FROM information_schema.KEY_COLUMN_USAGE
+      WHERE TABLE_SCHEMA = DATABASE()
+      AND REFERENCED_TABLE_NAME = ?
+    `,
+      [this.tableName]
+    )
+    const fkRows = fkResult[0] || []
+    for (const row of fkRows) {
+      if (!row.TABLE_NAME || !row.CONSTRAINT_NAME) continue
+      try {
+        await this.db.rawQuery(
+          `ALTER TABLE ${row.TABLE_NAME} DROP FOREIGN KEY ${row.CONSTRAINT_NAME}`
+        )
+      } catch {
+        // Ignore if already dropped
+      }
+    }
+
+    await this.db.rawQuery(`DROP TABLE IF EXISTS ${this.tableName}`)
   }
 }

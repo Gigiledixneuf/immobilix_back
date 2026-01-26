@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import User from '#models/user'
 import Property from '#models/property'
+import { randomUUID } from 'node:crypto'
 
 export enum InviteStatus {
   PENDING = 'pending',
@@ -11,13 +12,23 @@ export enum InviteStatus {
 }
 
 export default class Invite extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(invite: Invite) {
+    if (!invite.uuid) {
+      invite.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
 
-  @column()
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ serializeAs: null })
   declare landlordId: number
 
-  @column()
+  @column({ serializeAs: null })
   declare propertyId: number | null
 
   @column()

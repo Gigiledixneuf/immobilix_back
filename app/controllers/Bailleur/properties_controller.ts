@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import { PropertyValidator } from '#validators/Bailleur/property'
 import {
   Step1AddressValidator,
@@ -12,12 +13,15 @@ import {
   CompletePropertyValidator,
 } from '#validators/Bailleur/property_step_validator'
 import Property from '#models/property'
+import { ensureUuid } from '#utils/uuid'
 import PropertyPhoto from '#models/property_photo'
 import PropertyAmenity from '#models/property_amenity'
 import app from '@adonisjs/core/services/app'
 import Contract from '#models/contract'
 import User from '#models/user'
 import { DateTime } from 'luxon'
+import { PropertyPhotoService } from '#services/property_photo_service'
+import { ImageProcessingService } from '#services/image_processing_service'
 
 export default class PropertiesController {
   /**
@@ -27,16 +31,24 @@ export default class PropertiesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    await user.load('roles')
-    const isBailleur = user.roles?.some((r) => r.name === 'bailleur') ?? false
-    if (!isBailleur) return response.badRequest({ message: "Vous n'êtes pas bailleur" })
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent voir leurs propriétés
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({ 
+        message: 'Vous devez être en mode BAILLEUR pour voir vos propriétés. Changez de rôle dans votre profil.' 
+      })
+    }
 
-    // Ne récupérer que les propriétés complètes (création terminée)
+    // Récupérer toutes les propriétés du bailleur (y compris celles en cours de création)
     const properties = await Property.query()
       .where('user_id', user.id)
-      .where('creation_step', '>=', 8) // Seulement les propriétés complètes
       .preload('photos')
       .preload('amenities')
+      .orderBy('created_at', 'desc') // Plus récentes en premier
+    
+    // Logger pour débogage
+    const logger = (await import('@adonisjs/core/services/logger')).default
+    logger.info(`📋 [PROPERTIES INDEX] Récupération des propriétés pour user_id: ${user.id}, nombre trouvé: ${properties.length}`)
+    
     return response.ok({ message: 'Liste des logements récupérée', data: properties })
   }
 
@@ -55,11 +67,12 @@ export default class PropertiesController {
       return response.unauthorized({ message: 'You are not authorized' })
     }
 
-    await user.load('roles')
-    const isBailleur = user.roles?.some((role) => role.name === 'bailleur') ?? false
-    if (!isBailleur) {
-      logger.warn(`📝 [PROPERTY STORE] Utilisateur ${user.id} n'est pas bailleur`)
-      return response.badRequest({ message: "Vous n'êtes pas bailleur" })
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent créer une propriété
+    if (user.activeRole !== 'landlord') {
+      logger.warn(`📝 [PROPERTY STORE] Utilisateur ${user.id} n'est pas en mode BAILLEUR`)
+      return response.forbidden({ 
+        message: 'Vous devez être en mode BAILLEUR pour créer une propriété. Changez de rôle dans votre profil.' 
+      })
     }
 
     // Récupérer step depuis body, query params, ou les deux
@@ -189,6 +202,9 @@ export default class PropertiesController {
         city: payload.city,
         state: payload.state,
         postal_code: payload.postal_code,
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        formatted_address: payload.formatted_address,
         user_id: user.id,
         creation_step: 1,
         // Valeurs par défaut temporaires
@@ -222,6 +238,9 @@ export default class PropertiesController {
         city: payload.city,
         state: payload.state,
         postal_code: payload.postal_code,
+        latitude: payload.latitude ?? property.latitude,
+        longitude: payload.longitude ?? property.longitude,
+        formatted_address: payload.formatted_address ?? property.formatted_address,
         name: uniqueName,
         // Si les champs obligatoires sont manquants, leur donner des valeurs minimales
         surface: property.surface ?? 1,
@@ -499,28 +518,87 @@ export default class PropertiesController {
     
     logger.info(`📝 [PROPERTY STEP 8] Validation réussie - ${payload.photos.length} photos, ${payload.amenities?.length || 0} commodités`)
 
-    // Traiter les photos
+    // Traiter les photos avec compression et optimisation
     const photoFiles = payload.photos
     const uploadedPhotos: PropertyPhoto[] = []
 
-    for (let i = 0; i < photoFiles.length; i++) {
-      const photoFile = photoFiles[i]
-      await photoFile.move(app.makePath('uploads/properties'))
-      const fileName = photoFile.fileName
+    // S'assurer que le dossier de la propriété existe
+    await PropertyPhotoService.ensurePropertyFolderExists(property.id)
 
-      const photo = await PropertyPhoto.create({
-        property_id: property.id,
-        photo_url: fileName,
-        display_order: i,
-        is_main: i === 0, // La première photo est la photo principale
-      })
+    try {
+      for (let i = 0; i < photoFiles.length; i++) {
+        const photoFile = photoFiles[i]
+        
+        // 1. Valider la taille du fichier
+        const isValidSize = await ImageProcessingService.validateFileSize(photoFile.tmpPath!)
+        if (!isValidSize) {
+          throw new Error(
+            `L'image ${i + 1} est trop grande. Taille maximale autorisée: 5MB`
+          )
+        }
 
-      uploadedPhotos.push(photo)
+        // 2. Générer les noms de fichiers (standard + thumbnail)
+        const standardFileName = `img_${i + 1}.jpg`
+        const thumbnailFileName = `thumb_${i + 1}.jpg`
 
-      // Mettre à jour mainPhotoUrl si c'est la première photo
-      if (i === 0) {
-        property.mainPhotoUrl = fileName
+        // 3. Chemins complets
+        const propertyFolderPath = PropertyPhotoService.getPropertyFolderFullPath(property.id)
+        const tempFilePath = photoFile.tmpPath!
+        const standardFilePath = PropertyPhotoService.getPhotoFullPath(property.id, standardFileName)
+        const thumbnailFilePath = PropertyPhotoService.getPhotoFullPath(property.id, thumbnailFileName)
+
+        // 4. Traiter l'image : compression + redimensionnement + suppression EXIF
+        try {
+          await ImageProcessingService.processImageWithThumbnail(
+            tempFilePath,
+            standardFilePath,
+            thumbnailFilePath
+          )
+        } catch (processError: any) {
+          logger.error(
+            `[PROPERTY STEP 8] Erreur lors du traitement de l'image ${i + 1}: ${processError.message}`
+          )
+          throw new Error(
+            `Erreur lors du traitement de l'image ${i + 1}: ${processError.message || "Format d'image non supporté ou corrompu"}`
+          )
+        }
+
+        // 5. Stocker le chemin relatif dans la base de données (format standard)
+        // Format: properties/property_<propertyId>/img_<index>.jpg
+        const photoRelativePath = `${PropertyPhotoService.getPropertyFolderPath(property.id)}/${standardFileName}`
+
+        const photo = await PropertyPhoto.create({
+          property_id: property.id,
+          photo_url: photoRelativePath, // Stocker le chemin relatif complet
+          display_order: i,
+          is_main: i === 0, // La première photo est la photo principale
+        })
+
+        uploadedPhotos.push(photo)
+
+        // Mettre à jour mainPhotoUrl si c'est la première photo
+        if (i === 0) {
+          property.mainPhotoUrl = photoRelativePath
+        }
       }
+    } catch (error: any) {
+      // En cas d'erreur, nettoyer les fichiers partiellement uploadés
+      logger.error(`[PROPERTY STEP 8] Erreur lors du traitement des photos: ${error.message}`)
+      
+      // Supprimer les photos déjà uploadées
+      for (const uploadedPhoto of uploadedPhotos) {
+        try {
+          await uploadedPhoto.delete()
+        } catch {
+          // Ignorer les erreurs de suppression
+        }
+      }
+
+      // Retourner une erreur claire
+      return response.badRequest({
+        message: error.message || 'Erreur lors du traitement des images',
+        code: 'IMAGE_PROCESSING_ERROR',
+      })
     }
 
     // Traiter les commodités
@@ -581,6 +659,9 @@ export default class PropertiesController {
       city: payload.city,
       state: payload.state,
       postal_code: payload.postal_code,
+      latitude: payload.latitude,
+      longitude: payload.longitude,
+      formatted_address: payload.formatted_address,
       type: payload.type,
       property_use_type: payload.property_use_type,
       surface: payload.surface,
@@ -602,24 +683,93 @@ export default class PropertiesController {
       creation_step: 8,
     })
 
-    // Traiter les photos
+    // Traiter les photos avec compression et optimisation
     const photoFiles = payload.photos
-    for (let i = 0; i < photoFiles.length; i++) {
-      const photoFile = photoFiles[i]
-      await photoFile.move(app.makePath('uploads/properties'))
-      const fileName = photoFile.fileName
+    
+    // S'assurer que le dossier de la propriété existe
+    await PropertyPhotoService.ensurePropertyFolderExists(property.id)
+    
+    const uploadedPhotos: PropertyPhoto[] = []
+    
+    try {
+      for (let i = 0; i < photoFiles.length; i++) {
+        const photoFile = photoFiles[i]
+        
+        // 1. Valider la taille du fichier
+        const isValidSize = await ImageProcessingService.validateFileSize(photoFile.tmpPath!)
+        if (!isValidSize) {
+          throw new Error(
+            `L'image ${i + 1} est trop grande. Taille maximale autorisée: 5MB`
+          )
+        }
 
-      await PropertyPhoto.create({
-        property_id: property.id,
-        photo_url: fileName,
-        display_order: i,
-        is_main: i === 0,
-      })
+        // 2. Générer les noms de fichiers (standard + thumbnail)
+        const standardFileName = `img_${i + 1}.jpg`
+        const thumbnailFileName = `thumb_${i + 1}.jpg`
 
-      if (i === 0) {
-        property.mainPhotoUrl = fileName
-        await property.save()
+        // 3. Chemins complets
+        const tempFilePath = photoFile.tmpPath!
+        const standardFilePath = PropertyPhotoService.getPhotoFullPath(property.id, standardFileName)
+        const thumbnailFilePath = PropertyPhotoService.getPhotoFullPath(property.id, thumbnailFileName)
+
+        // 4. Traiter l'image : compression + redimensionnement + suppression EXIF
+        try {
+          await ImageProcessingService.processImageWithThumbnail(
+            tempFilePath,
+            standardFilePath,
+            thumbnailFilePath
+          )
+        } catch (processError: any) {
+          logger.error(
+            `[PROPERTY COMPLETE] Erreur lors du traitement de l'image ${i + 1}: ${processError.message}`
+          )
+          throw new Error(
+            `Erreur lors du traitement de l'image ${i + 1}: ${processError.message || "Format d'image non supporté ou corrompu"}`
+          )
+        }
+
+        // 5. Stocker le chemin relatif dans la base de données
+        const photoRelativePath = `${PropertyPhotoService.getPropertyFolderPath(property.id)}/${standardFileName}`
+
+        const photo = await PropertyPhoto.create({
+          property_id: property.id,
+          photo_url: photoRelativePath,
+          display_order: i,
+          is_main: i === 0,
+        })
+
+        uploadedPhotos.push(photo)
+
+        if (i === 0) {
+          property.mainPhotoUrl = photoRelativePath
+          await property.save()
+        }
       }
+    } catch (error: any) {
+      // En cas d'erreur, nettoyer les fichiers partiellement uploadés et la propriété
+      const logger = (await import('@adonisjs/core/services/logger')).default
+      logger.error(`[PROPERTY COMPLETE] Erreur lors du traitement des photos: ${error.message}`)
+      
+      // Supprimer les photos déjà uploadées
+      for (const uploadedPhoto of uploadedPhotos) {
+        try {
+          await uploadedPhoto.delete()
+        } catch {
+          // Ignorer les erreurs de suppression
+        }
+      }
+      
+      // Supprimer la propriété créée
+      try {
+        await property.delete()
+      } catch {
+        // Ignorer si la propriété n'a pas pu être supprimée
+      }
+
+      return response.badRequest({
+        message: error.message || 'Erreur lors du traitement des images',
+        code: 'IMAGE_PROCESSING_ERROR',
+      })
     }
 
     // Traiter les commodités
@@ -663,16 +813,28 @@ export default class PropertiesController {
       return response.notFound({ message: 'Logement introuvable' })
     }
 
-    const isOwner = user.id === property.user_id
+    // ISOLATION STRICTE : Vérifier l'accès selon le rôle actif
+    if (!user.activeRole) {
+      return response.forbidden({
+        message: 'Aucun rôle actif défini. Veuillez sélectionner un rôle dans votre profil.',
+      })
+    }
 
-    // On vérifie s'il existe un contrat entre l'utilisateur et le logement
-    const contract = await Contract.query()
-      .where('property_id', property.id)
-      .where('tenant_id', user.id)
-      .first()
-    const isTenant = !!contract
+    let hasAccess = false
 
-    if (!isOwner && !isTenant) {
+    if (user.activeRole === 'landlord') {
+      // En mode BAILLEUR : voir seulement ses propres propriétés
+      hasAccess = user.id === property.user_id
+    } else if (user.activeRole === 'tenant') {
+      // En mode LOCATAIRE : voir les propriétés où il a un contrat
+      const contract = await Contract.query()
+        .where('property_id', property.id)
+        .where('tenant_id', user.id)
+        .first()
+      hasAccess = !!contract
+    }
+
+    if (!hasAccess) {
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
     }
 
@@ -686,6 +848,11 @@ export default class PropertiesController {
         fullName: ownerDetails.fullName,
         email: ownerDetails.email,
         portable: ownerDetails.portable,
+      },
+      location: {
+        lat: property.latitude,
+        lng: property.longitude,
+        address: property.formatted_address ?? property.address,
       },
     }
 
@@ -703,7 +870,8 @@ export default class PropertiesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    const property = await Property.find(params.id)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
     if (property.user_id !== user.id)
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
@@ -738,6 +906,9 @@ export default class PropertiesController {
       capacity: payload.capacity ?? property.capacity,
       price: payload.price ?? property.price,
       description: payload.description ?? property.description,
+      latitude: payload.latitude ?? property.latitude,
+      longitude: payload.longitude ?? property.longitude,
+      formatted_address: payload.formatted_address ?? property.formatted_address,
       mainPhotoUrl: fileName ?? property.mainPhotoUrl,
     })
 
@@ -792,6 +963,9 @@ export default class PropertiesController {
       city: payload.city,
       state: payload.state,
       postal_code: payload.postal_code,
+      latitude: payload.latitude ?? property.latitude,
+      longitude: payload.longitude ?? property.longitude,
+      formatted_address: payload.formatted_address ?? property.formatted_address,
     })
     await property.save()
 
@@ -918,25 +1092,127 @@ export default class PropertiesController {
     
     logger.info(`📝 [PROPERTY UPDATE STEP 8] Validation réussie - ${payload.photos.length} photos, ${payload.amenities?.length || 0} commodités`)
 
-    // Supprimer les anciennes photos
+    // Supprimer les anciennes photos (fichiers physiques et enregistrements DB)
+    const oldPhotos = await PropertyPhoto.query().where('property_id', property.id)
+    const fs = await import('node:fs/promises')
+    const path = await import('node:path')
+    
+    for (const oldPhoto of oldPhotos) {
+      try {
+        // Construire le chemin complet du fichier
+        let filePath: string
+        if (oldPhoto.photo_url.includes('/')) {
+          // Nouveau format: properties/property_<id>/img_1.jpg
+          filePath = app.makePath('uploads', oldPhoto.photo_url)
+        } else {
+          // Ancien format: juste le nom du fichier
+          filePath = app.makePath('uploads/properties', oldPhoto.photo_url)
+        }
+        
+        // Supprimer le fichier standard s'il existe
+        try {
+          await fs.unlink(filePath)
+          logger.info(`📝 [PROPERTY UPDATE STEP 8] Fichier supprimé: ${filePath}`)
+        } catch (unlinkError: any) {
+          // Ignorer si le fichier n'existe pas
+          if (unlinkError.code !== 'ENOENT') {
+            logger.warn(`📝 [PROPERTY UPDATE STEP 8] Erreur lors de la suppression du fichier ${filePath}: ${unlinkError.message}`)
+          }
+        }
+
+        // Supprimer le thumbnail correspondant si il existe (format: thumb_1.jpg)
+        try {
+          const fileName = PropertyPhotoService.extractFileName(oldPhoto.photo_url)
+          const thumbnailFileName = fileName.replace('img_', 'thumb_')
+          const thumbnailPath = app.makePath('uploads', oldPhoto.photo_url.replace(fileName, thumbnailFileName))
+          await fs.unlink(thumbnailPath).catch(() => {}) // Ignorer si le thumbnail n'existe pas
+        } catch {
+          // Ignorer les erreurs de suppression du thumbnail
+        }
+      } catch (error: any) {
+        logger.warn(`📝 [PROPERTY UPDATE STEP 8] Erreur lors du traitement de la photo ${oldPhoto.id}: ${error.message}`)
+      }
+    }
+    
+    // Supprimer les enregistrements de la base de données
     await PropertyPhoto.query().where('property_id', property.id).delete()
 
-    // Ajouter les nouvelles photos
-    for (let i = 0; i < payload.photos.length; i++) {
-      const photoFile = payload.photos[i]
-      await photoFile.move(app.makePath('uploads/properties'))
-      const fileName = photoFile.fileName
+    // S'assurer que le dossier de la propriété existe
+    await PropertyPhotoService.ensurePropertyFolderExists(property.id)
 
-      await PropertyPhoto.create({
-        property_id: property.id,
-        photo_url: fileName,
-        display_order: i,
-        is_main: i === 0,
-      })
+    // Ajouter les nouvelles photos avec compression et optimisation
+    const uploadedPhotos: PropertyPhoto[] = []
+    
+    try {
+      for (let i = 0; i < payload.photos.length; i++) {
+        const photoFile = payload.photos[i]
+        
+        // 1. Valider la taille du fichier
+        const isValidSize = await ImageProcessingService.validateFileSize(photoFile.tmpPath!)
+        if (!isValidSize) {
+          throw new Error(
+            `L'image ${i + 1} est trop grande. Taille maximale autorisée: 5MB`
+          )
+        }
 
-      if (i === 0) {
-        property.mainPhotoUrl = fileName
+        // 2. Générer les noms de fichiers (standard + thumbnail)
+        const standardFileName = `img_${i + 1}.jpg`
+        const thumbnailFileName = `thumb_${i + 1}.jpg`
+
+        // 3. Chemins complets
+        const tempFilePath = photoFile.tmpPath!
+        const standardFilePath = PropertyPhotoService.getPhotoFullPath(property.id, standardFileName)
+        const thumbnailFilePath = PropertyPhotoService.getPhotoFullPath(property.id, thumbnailFileName)
+
+        // 4. Traiter l'image : compression + redimensionnement + suppression EXIF
+        try {
+          await ImageProcessingService.processImageWithThumbnail(
+            tempFilePath,
+            standardFilePath,
+            thumbnailFilePath
+          )
+        } catch (processError: any) {
+          logger.error(
+            `[PROPERTY UPDATE STEP 8] Erreur lors du traitement de l'image ${i + 1}: ${processError.message}`
+          )
+          throw new Error(
+            `Erreur lors du traitement de l'image ${i + 1}: ${processError.message || "Format d'image non supporté ou corrompu"}`
+          )
+        }
+
+        // 5. Stocker le chemin relatif dans la base de données
+        const photoRelativePath = `${PropertyPhotoService.getPropertyFolderPath(property.id)}/${standardFileName}`
+
+        const photo = await PropertyPhoto.create({
+          property_id: property.id,
+          photo_url: photoRelativePath,
+          display_order: i,
+          is_main: i === 0,
+        })
+
+        uploadedPhotos.push(photo)
+
+        if (i === 0) {
+          property.mainPhotoUrl = photoRelativePath
+        }
       }
+    } catch (error: any) {
+      // En cas d'erreur, nettoyer les fichiers partiellement uploadés
+      logger.error(`[PROPERTY UPDATE STEP 8] Erreur lors du traitement des photos: ${error.message}`)
+      
+      // Supprimer les photos déjà uploadées
+      for (const uploadedPhoto of uploadedPhotos) {
+        try {
+          await uploadedPhoto.delete()
+        } catch {
+          // Ignorer les erreurs de suppression
+        }
+      }
+
+      return response.badRequest({
+        message: error.message || 'Erreur lors du traitement des images',
+        code: 'IMAGE_PROCESSING_ERROR',
+      })
     }
 
     // Traiter les commodités
@@ -962,19 +1238,133 @@ export default class PropertiesController {
   }
 
   /**
+   * 📢 Publier un logement (le rendre visible publiquement).
+   * Uniquement si toutes les étapes sont complétées (creation_step = 8) et au moins une photo.
+   */
+  async publish({ params, auth, response }: HttpContext) {
+    const user = auth.user
+    if (!user) return response.unauthorized({ message: 'You are not authorized' })
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour publier un logement.',
+      })
+    }
+
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
+    if (!property) return response.notFound({ message: 'Logement introuvable' })
+    if (property.user_id !== user.id) {
+      return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
+    }
+
+    if (property.creation_step !== 8) {
+      return response.badRequest({
+        message:
+          'Complétez toutes les étapes de création (1 à 8) avant de publier votre logement.',
+      })
+    }
+
+    const photoCount = await PropertyPhoto.query().where('property_id', property.id).count('* as total')
+    const total = Number(photoCount[0]?.$extras?.total ?? 0)
+    if (total < 1) {
+      return response.badRequest({
+        message: 'Ajoutez au moins une photo avant de publier votre logement.',
+      })
+    }
+
+    property.isPublic = true
+    await property.save()
+
+    return response.ok({
+      message: 'Logement publié avec succès. Il est maintenant visible publiquement.',
+      data: property,
+    })
+  }
+
+  /**
+   * 📥 Dépublier un logement (le remettre en brouillon).
+   */
+  async unpublish({ params, auth, response }: HttpContext) {
+    const user = auth.user
+    if (!user) return response.unauthorized({ message: 'You are not authorized' })
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({
+        message: 'Vous devez être en mode BAILLEUR pour gérer la publication.',
+      })
+    }
+
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
+    if (!property) return response.notFound({ message: 'Logement introuvable' })
+    if (property.user_id !== user.id) {
+      return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
+    }
+
+    property.isPublic = false
+    await property.save()
+
+    return response.ok({
+      message: 'Logement retiré de la publication. Il est maintenant en brouillon.',
+      data: property,
+    })
+  }
+
+  /**
    * 🗑️ Supprimer un logement
    */
   async destroy({ params, auth, response }: HttpContext) {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    const property = await Property.find(params.id)
+    ensureUuid(params.id, 'UUID de propriété invalide')
+    const property = await Property.findBy('uuid', params.id)
     if (!property) return response.notFound({ message: 'Logement introuvable' })
     if (property.user_id !== user.id)
       return response.forbidden({ message: "Vous n'avez pas accès à ce logement" })
 
-    // Supprimer les photos associées
+    // Supprimer les photos associées (fichiers physiques et enregistrements DB)
+    const photos = await PropertyPhoto.query().where('property_id', property.id)
+    const fs = await import('node:fs/promises')
+    
+    for (const photo of photos) {
+      try {
+        // Construire le chemin complet du fichier
+        let filePath: string
+        if (photo.photo_url.includes('/')) {
+          // Nouveau format: properties/property_<id>/img_1.jpg
+          filePath = app.makePath('uploads', photo.photo_url)
+        } else {
+          // Ancien format: juste le nom du fichier
+          filePath = app.makePath('uploads/properties', photo.photo_url)
+        }
+        
+        // Supprimer le fichier s'il existe
+        try {
+          await fs.unlink(filePath)
+        } catch (unlinkError: any) {
+          // Ignorer si le fichier n'existe pas
+          if (unlinkError.code !== 'ENOENT') {
+            logger.warn(`Erreur lors de la suppression du fichier ${filePath}: ${unlinkError.message}`)
+          }
+        }
+      } catch (error: any) {
+        logger.warn(`Erreur lors du traitement de la photo ${photo.id}: ${error.message}`)
+      }
+    }
+    
+    // Supprimer les enregistrements de la base de données
     await PropertyPhoto.query().where('property_id', property.id).delete()
+    
+    // Supprimer le dossier de la propriété s'il existe (nouveau format)
+    try {
+      const propertyFolderPath = PropertyPhotoService.getPropertyFolderFullPath(property.id)
+      await fs.rmdir(propertyFolderPath, { recursive: true })
+    } catch (rmdirError: any) {
+      // Ignorer si le dossier n'existe pas ou s'il n'est pas vide
+      if (rmdirError.code !== 'ENOENT' && rmdirError.code !== 'ENOTEMPTY') {
+        logger.warn(`Erreur lors de la suppression du dossier de la propriété: ${rmdirError.message}`)
+      }
+    }
     
     // Supprimer les commodités associées
     await PropertyAmenity.query().where('property_id', property.id).delete()
@@ -992,10 +1382,12 @@ export default class PropertiesController {
     const user = auth.user
     if (!user) return response.unauthorized({ message: 'You are not authorized' })
 
-    await user.load('roles')
-    const isBailleur = user.roles?.some((r) => r.name === 'bailleur') ?? false
-    if (!isBailleur)
-      return response.forbidden({ message: "Vous n'êtes pas autorisé à accéder à cette liste" })
+    // ISOLATION STRICTE : Seuls les utilisateurs en mode BAILLEUR peuvent voir leurs locataires
+    if (user.activeRole !== 'landlord') {
+      return response.forbidden({ 
+        message: 'Vous devez être en mode BAILLEUR pour voir vos locataires. Changez de rôle dans votre profil.' 
+      })
+    }
 
     // 1. Récupérer les IDs de propriétés du bailleur
     const userProperties = await Property.query().where('user_id', user.id).select('id')

@@ -1,24 +1,35 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import User from '#models/user'
 import Message from '#models/message'
 import Property from '#models/property'
+import { randomUUID } from 'node:crypto'
 
 export default class Conversation extends BaseModel {
-  @column({ isPrimary: true })
+  @beforeCreate()
+  static assignUuid(conversation: Conversation) {
+    if (!conversation.uuid) {
+      conversation.uuid = randomUUID()
+    }
+  }
+
+  @column({ isPrimary: true, serializeAs: null })
   declare id: number
 
-  @column({ columnName: 'user1_id' })
+  @column({ serializeAs: 'id' })
+  declare uuid: string
+
+  @column({ columnName: 'user1_id', serializeAs: null })
   declare user1Id: number
 
-  @column({ columnName: 'user2_id' })
+  @column({ columnName: 'user2_id', serializeAs: null })
   declare user2Id: number
 
-  @column({ columnName: 'property_id' })
+  @column({ columnName: 'property_id', serializeAs: null })
   declare propertyId: number | null
 
-  @column({ columnName: 'last_message_id' })
+  @column({ columnName: 'last_message_id', serializeAs: null })
   declare lastMessageId: number | null
 
   @column.dateTime({ autoCreate: true })

@@ -1,9 +1,12 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import Conversation from '#models/conversation'
 import Message from '#models/message'
 import { CreateMessageValidator } from '#validators/message'
-import NotificationsService from '#services/notifications_service'
-import { getWebSocketService } from '#services/websocket_service'
+import { getRealtimeEventBus } from '#services/realtime_event_bus'
+import { ensureUuid } from '#utils/uuid'
+import User from '#models/user'
+import Property from '#models/property'
 
 export default class MessagesController {
   /**
@@ -22,13 +25,13 @@ export default class MessagesController {
           query.where('user1_id', user.id).orWhere('user2_id', user.id)
         })
         .preload('user1', (userQuery) => {
-          userQuery.select(['id', 'fullName', 'email'])
+          userQuery.select(['id', 'uuid', 'fullName', 'email'])
         })
         .preload('user2', (userQuery) => {
-          userQuery.select(['id', 'fullName', 'email'])
+          userQuery.select(['id', 'uuid', 'fullName', 'email'])
         })
         .preload('property', (propertyQuery) => {
-          propertyQuery.select(['id', 'name', 'address', 'city', 'mainPhotoUrl'])
+          propertyQuery.select(['id', 'uuid', 'name', 'address', 'city', 'mainPhotoUrl'])
         })
         .orderBy('updated_at', 'desc')
 
@@ -42,7 +45,7 @@ export default class MessagesController {
         ? await Message.query()
             .whereIn('id', lastMessageIds)
             .preload('sender', (senderQuery) => {
-              senderQuery.select(['id', 'fullName'])
+              senderQuery.select(['id', 'uuid', 'fullName'])
             })
         : []
 
@@ -53,15 +56,15 @@ export default class MessagesController {
         const lastMessage = conv.lastMessageId ? lastMessagesMap.get(conv.lastMessageId) : null
 
         return {
-          id: conv.id,
+          id: conv.uuid,
           otherUser: {
-            id: otherUser?.id || 0,
+            id: otherUser?.uuid || null,
             fullName: otherUser?.fullName || 'Utilisateur inconnu',
             email: otherUser?.email || null,
           },
           property: conv.property
             ? {
-                id: conv.property.id,
+                id: conv.property.uuid,
                 name: conv.property.name,
                 address: conv.property.address,
                 city: conv.property.city,
@@ -70,9 +73,9 @@ export default class MessagesController {
             : null,
           lastMessage: lastMessage
             ? {
-                id: lastMessage.id,
+                id: lastMessage.uuid,
                 content: lastMessage.content,
-                senderId: lastMessage.senderId,
+                senderId: lastMessage.sender?.uuid ?? null,
                 createdAt: lastMessage.createdAt.toISO(),
               }
             : null,
@@ -85,7 +88,7 @@ export default class MessagesController {
         count: formattedConversations.length,
       })
     } catch (error: any) {
-      console.error('Error in MessagesController.index:', error)
+      logger.error('Error in MessagesController.index:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération des conversations',
         error: error.message,
@@ -104,10 +107,10 @@ export default class MessagesController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const conversationId = Number(params.id)
+    ensureUuid(params.id, 'UUID de conversation invalide')
 
     try {
-      const conversation = await Conversation.find(conversationId)
+      const conversation = await Conversation.findBy('uuid', params.id)
       if (!conversation) {
         return response.notFound({ message: 'Conversation introuvable' })
       }
@@ -118,31 +121,31 @@ export default class MessagesController {
       }
 
       const messages = await Message.query()
-        .where('conversation_id', conversationId)
+        .where('conversation_id', conversation.id)
         .preload('sender', (senderQuery) => {
-          senderQuery.select(['id', 'fullName', 'email'])
+          senderQuery.select(['id', 'uuid', 'fullName', 'email'])
         })
         .orderBy('created_at', 'asc')
 
       // Marquer les messages comme lus
       await Message.query()
-        .where('conversation_id', conversationId)
+        .where('conversation_id', conversation.id)
         .where('sender_id', '!=', user.id)
         .where('is_read', false)
         .update({ is_read: true })
 
       const formattedMessages = messages.map((msg) => ({
-        id: msg.id,
+        id: msg.uuid,
         content: msg.content,
         type: msg.type,
-        senderId: msg.senderId,
+        senderId: msg.sender?.uuid ?? null,
         sender: msg.sender
           ? {
-              id: msg.sender.id,
+              id: msg.sender.uuid,
               fullName: msg.sender.fullName,
             }
           : {
-              id: msg.senderId,
+              id: null,
               fullName: 'Utilisateur inconnu',
             },
         isRead: msg.isRead,
@@ -154,7 +157,7 @@ export default class MessagesController {
         count: formattedMessages.length,
       })
     } catch (error: any) {
-      console.error('Error in MessagesController.getMessages:', error)
+      logger.error('Error in MessagesController.getMessages:', error)
       return response.internalServerError({
         message: 'Erreur lors de la récupération des messages',
         error: error.message,
@@ -174,20 +177,14 @@ export default class MessagesController {
     }
 
     try {
-      console.log('MessagesController.store: Starting message creation')
       const payload = await request.validateUsing(CreateMessageValidator)
-      console.log('MessagesController.store: Payload validated:', { 
-        conversationId: payload.conversationId, 
-        recipientId: payload.recipientId,
-        propertyId: payload.propertyId,
-        contentLength: payload.content?.length 
-      })
 
       let conversation: Conversation | null = null
 
       // Si conversationId est fourni, utiliser la conversation existante
       if (payload.conversationId) {
-        conversation = await Conversation.find(payload.conversationId)
+        ensureUuid(payload.conversationId, 'UUID de conversation invalide')
+        conversation = await Conversation.findBy('uuid', payload.conversationId)
         if (!conversation) {
           return response.notFound({ message: 'Conversation introuvable' })
         }
@@ -198,48 +195,53 @@ export default class MessagesController {
         }
       } else if (payload.recipientId) {
         // Créer ou récupérer une conversation existante
-        const recipientId = payload.recipientId
+        ensureUuid(payload.recipientId, 'UUID de destinataire invalide')
+        const recipient = await User.findBy('uuid', payload.recipientId)
+        if (!recipient) {
+          return response.notFound({ message: 'Destinataire introuvable' })
+        }
         const propertyId = payload.propertyId || null
+        let resolvedPropertyId: number | null = null
+        if (propertyId) {
+          ensureUuid(propertyId, 'UUID de propriété invalide')
+          const property = await Property.findBy('uuid', propertyId)
+          if (!property) {
+            return response.notFound({ message: 'Propriété introuvable' })
+          }
+          resolvedPropertyId = property.id
+        }
 
-        console.log('MessagesController.store: Looking for conversation', { 
-          userId: user.id, 
-          recipientId, 
-          propertyId 
-        })
 
         // Chercher une conversation existante (avec propertyId si fourni)
         // Construire la requête avec les conditions appropriées
         const queryBuilder = Conversation.query()
           .where((q) => {
             q.where((subQ) => {
-              subQ.where('user1_id', user.id).where('user2_id', recipientId)
+              subQ.where('user1_id', user.id).where('user2_id', recipient.id)
             }).orWhere((subQ) => {
-              subQ.where('user1_id', recipientId).where('user2_id', user.id)
+              subQ.where('user1_id', recipient.id).where('user2_id', user.id)
             })
           })
 
         // Ajouter la condition pour propertyId
-        if (propertyId) {
-          queryBuilder.where('property_id', propertyId)
+        if (resolvedPropertyId) {
+          queryBuilder.where('property_id', resolvedPropertyId)
         } else {
           queryBuilder.whereNull('property_id')
         }
 
         conversation = await queryBuilder.first()
-        console.log('MessagesController.store: Conversation found:', conversation ? conversation.id : 'none')
 
         // Si aucune conversation n'existe, en créer une nouvelle
         if (!conversation) {
-          console.log('MessagesController.store: Creating new conversation')
           try {
             conversation = await Conversation.create({
-              user1Id: user.id < recipientId ? user.id : recipientId,
-              user2Id: user.id < recipientId ? recipientId : user.id,
-              propertyId: propertyId,
+              user1Id: user.id < recipient.id ? user.id : recipient.id,
+              user2Id: user.id < recipient.id ? recipient.id : user.id,
+              propertyId: resolvedPropertyId,
             })
-            console.log('MessagesController.store: Conversation created:', conversation.id)
           } catch (createError: any) {
-            console.error('MessagesController.store: Error creating conversation:', createError)
+            logger.error('MessagesController.store: Error creating conversation:', createError)
             // Si l'erreur est due à une contrainte unique, réessayer de trouver la conversation
             if (
               createError.code === 'ER_DUP_ENTRY' ||
@@ -247,28 +249,26 @@ export default class MessagesController {
               createError.message?.includes('unique constraint') ||
               createError.message?.includes('Duplicate entry')
             ) {
-              console.log('MessagesController.store: Duplicate entry, retrying query')
               // Une conversation a été créée entre-temps, la récupérer
               // Reconstruire la requête
               const retryQuery = Conversation.query()
                 .where((q) => {
                   q.where((subQ) => {
-                    subQ.where('user1_id', user.id).where('user2_id', recipientId)
+                    subQ.where('user1_id', user.id).where('user2_id', recipient.id)
                   }).orWhere((subQ) => {
-                    subQ.where('user1_id', recipientId).where('user2_id', user.id)
+                    subQ.where('user1_id', recipient.id).where('user2_id', user.id)
                   })
                 })
-              if (propertyId) {
-                retryQuery.where('property_id', propertyId)
+              if (resolvedPropertyId) {
+                retryQuery.where('property_id', resolvedPropertyId)
               } else {
                 retryQuery.whereNull('property_id')
               }
               conversation = await retryQuery.first()
               if (!conversation) {
-                console.error('MessagesController.store: Conversation still not found after duplicate error')
+                logger.error('MessagesController.store: Conversation still not found after duplicate error')
                 throw createError
               }
-              console.log('MessagesController.store: Conversation found after retry:', conversation.id)
             } else {
               throw createError
             }
@@ -281,10 +281,6 @@ export default class MessagesController {
       }
 
       // Créer le message
-      console.log('MessagesController.store: Creating message', { 
-        conversationId: conversation.id, 
-        senderId: user.id 
-      })
       const message = await Message.create({
         conversationId: conversation.id,
         senderId: user.id,
@@ -292,23 +288,22 @@ export default class MessagesController {
         type: payload.type || 'text',
         isRead: false,
       })
-      console.log('MessagesController.store: Message created:', message.id)
 
       // Mettre à jour la conversation avec le dernier message
       await conversation.merge({ lastMessageId: message.id }).save()
 
       // Précharger les relations pour la réponse
       await message.load('sender', (senderQuery) => {
-        senderQuery.select(['id', 'fullName', 'email'])
+        senderQuery.select(['id', 'uuid', 'fullName', 'email'])
       })
 
       // Vérifier que sender est bien chargé
       if (!message.sender) {
-        console.error('MessagesController.store: Sender not loaded for message:', message.id)
+        logger.warn('MessagesController.store: Sender not loaded for message:', message.id)
         // Recharger le message avec sender
         await message.refresh()
         await message.load('sender', (senderQuery) => {
-          senderQuery.select(['id', 'fullName', 'email'])
+          senderQuery.select(['id', 'uuid', 'fullName', 'email'])
         })
       }
 
@@ -316,91 +311,60 @@ export default class MessagesController {
       const responseData = {
         message: 'Message envoyé avec succès',
         data: {
-          id: message.id,
+          id: message.uuid,
           content: message.content,
           type: message.type,
-          senderId: message.senderId,
+          senderId: message.sender?.uuid ?? user.uuid,
           sender: message.sender
             ? {
-                id: message.sender.id,
+                id: message.sender.uuid,
                 fullName: message.sender.fullName,
               }
             : {
-                id: user.id,
+                id: user.uuid,
                 fullName: user.fullName || 'Utilisateur',
               },
-          conversationId: conversation.id,
+          conversationId: conversation.uuid,
           createdAt: message.createdAt.toISO(),
         },
       }
 
-      // Envoyer les notifications de manière asynchrone (ne pas bloquer la réponse)
+      // Publier l'événement temps réel via Redis (fan-out par listener)
       const recipientId = conversation.getOtherUserId(user.id)
-      
-      // WebSocket et FCM en parallèle et asynchrone (fire and forget)
-      setImmediate(async () => {
-        try {
-          // Envoyer WebSocket et FCM en parallèle
-          const [wsResult, fcmResult] = await Promise.allSettled([
-            (async () => {
-              const websocketService = getWebSocketService()
-              await websocketService.sendMessageToUser(recipientId, {
-                type: 'new_message',
-                conversationId: conversation.id,
-                message: {
-                  id: message.id,
-                  content: message.content,
-                  senderId: message.senderId,
-                  sender: message.sender
-                    ? {
-                        id: message.sender.id,
-                        fullName: message.sender.fullName,
-                      }
-                    : {
-                        id: user.id,
-                        fullName: user.fullName || 'Utilisateur',
-                      },
-                  createdAt: message.createdAt.toISO(),
-                },
-              })
-            })(),
-            (async () => {
-              const notifier = new NotificationsService()
-              await notifier.sendFcmOnly(
-                recipientId,
-                'Nouveau message',
-                `${user.fullName}: ${payload.content.substring(0, 50)}${payload.content.length > 50 ? '...' : ''}`,
-                {
-                  conversationId: String(conversation.id),
-                  messageId: String(message.id),
-                  type: 'message',
+      const eventBus = getRealtimeEventBus()
+      await eventBus.publish({
+        type: 'message.created',
+        payload: {
+          recipientId,
+          senderId: user.id,
+          clientId: payload.clientId || null,
+          message: {
+            id: message.uuid,
+            content: message.content,
+            senderId: message.sender?.uuid ?? user.uuid,
+            sender: message.sender
+              ? {
+                  id: message.sender.uuid,
+                  fullName: message.sender.fullName,
                 }
-              )
-            })(),
-          ])
-
-          // Logger les erreurs si nécessaire
-          if (wsResult.status === 'rejected') {
-            console.error('WebSocket error:', wsResult.reason)
-          }
-          if (fcmResult.status === 'rejected') {
-            console.error('FCM notification error:', fcmResult.reason)
-          }
-        } catch (error) {
-          // Logger les erreurs mais ne pas bloquer
-          console.error('Error sending notifications:', error)
-        }
+              : {
+                  id: user.uuid,
+                  fullName: user.fullName || 'Utilisateur',
+                },
+            conversationId: conversation.uuid,
+            createdAt: message.createdAt.toISO(),
+          },
+        },
       })
 
       // Retourner la réponse immédiatement
       return response.created(responseData)
     } catch (error: any) {
-      console.error('Error in MessagesController.store:', error)
-      console.error('Error stack:', error.stack)
-      console.error('Error details:', {
+      logger.error('Error in MessagesController.store:', {
+        error: error.message,
+        stack: error.stack,
         name: error.name,
         code: error.code,
-        message: error.message,
         sql: error.sql,
         errno: error.errno,
         sqlState: error.sqlState,
@@ -437,10 +401,10 @@ export default class MessagesController {
       return response.unauthorized({ message: 'Non authentifié' })
     }
 
-    const messageId = Number(params.id)
+    ensureUuid(params.id, 'UUID de message invalide')
 
     try {
-      const message = await Message.find(messageId)
+      const message = await Message.findBy('uuid', params.id)
       if (!message) {
         return response.notFound({ message: 'Message introuvable' })
       }
@@ -468,7 +432,7 @@ export default class MessagesController {
         data: message,
       })
     } catch (error: any) {
-      console.error('Error in MessagesController.markAsRead:', error)
+      logger.error('Error in MessagesController.markAsRead:', error)
       return response.internalServerError({
         message: 'Erreur lors de la mise à jour du message',
         error: error.message,
@@ -516,7 +480,7 @@ export default class MessagesController {
         },
       })
     } catch (error: any) {
-      console.error('Error in MessagesController.unreadCount:', error)
+      logger.error('Error in MessagesController.unreadCount:', error)
       return response.internalServerError({
         message: 'Erreur lors du comptage des messages non lus',
         error: error.message,
